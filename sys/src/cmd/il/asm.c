@@ -141,7 +141,7 @@ asmb(void)
 	case 1:
 		break;
 	case 2:
-		t = thechar == 'j'? (debug['X']? B_MAGIC: Y_MAGIC): Z_MAGIC;
+		t = thechar == 'j'? B_MAGIC: Z_MAGIC;
 		lput(t);
 		lput(textsize);			/* sizes */
 		lput(datsize);
