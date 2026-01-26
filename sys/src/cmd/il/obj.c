@@ -13,7 +13,7 @@ char	*thestring 	= "riscv";
 
 /*
  *	-H1 -R4				is headerless (-R8 for jl)
- *	-H2 -T4128 -R4096		is plan9 format
+ *	-H2 -T4128 -R4096		is plan9 format (-T0x1000000028 for jl)
  *	-H5 -T4128 -R4			is elf executable (-R8 for jl)
  */
 
@@ -148,8 +148,12 @@ main(int argc, char *argv[])
 		HEADR = 32L;
 		if (thechar == 'j')
 			HEADR += sizeof(vlong);	/* for virtual entry addr. */
-		if(INITTEXT == -1)
-			INITTEXT = 4096 + HEADR;
+		if(INITTEXT == -1){
+			if(thechar == 'j')
+				INITTEXT = 0x1000000000ULL + HEADR;
+			else
+				INITTEXT = 4096 + HEADR;
+		}
 		if(INITDAT == -1)
 			INITDAT = 0;
 		if(INITRND == -1)

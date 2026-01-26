@@ -208,6 +208,10 @@ Executable is a standalone boot image or kernel.
 .BI -T t
 The text segment starts at (virtual) address
 .IR t .
+The default for
+.I jl
+is 0x1000000028: user text starts at 1<<36, and the 40-byte header
+comes first.
 .TP
 .BI -P t
 (ELF only)
