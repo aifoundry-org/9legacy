@@ -149,7 +149,10 @@ main(int argc, char *argv[])
 			INITRND = 4096;
 		break;
  	case 5:	/* elf executable */
-		HEADR = rnd(52L+3*32L, 16);
+		if(thechar == 'j')
+			HEADR = rnd(Ehdr64sz+3*Phdr64sz, 16);
+		else
+			HEADR = rnd(Ehdr32sz+3*Phdr32sz, 16);
 		if(INITTEXT == -1)
 			INITTEXT = 0;
 		if(INITDAT == -1)
