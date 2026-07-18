@@ -68,6 +68,9 @@ main(int argc, char *argv[])
 	case 'o':
 		outfile = ARGF();
 		break;
+	case 'u':
+		dlm = 1;
+		break;
 	case 'E':
 		a = ARGF();
 		if(a)
@@ -111,6 +114,10 @@ main(int argc, char *argv[])
 	if(thechar == 'j'){
 		thestring = "riscv64";
 		ptrsize = 8;
+	}
+	if(dlm && thechar != 'j'){
+		diag("-u unimplemented for riscv");
+		errorexit();
 	}
 	if(!debug['9'] && !debug['U'] && !debug['B'])
 		debug[DEFAULT] = 1;
