@@ -146,6 +146,12 @@ The optional
 restricts the imported symbols to those listed in the file.
 See
 .IR dynld (2).
+.I Jl
+takes no
+.I file
+and writes only the relocation data, with an empty import table.
+Code for riscv64 is position-independent, so the only fixups
+are for addresses in initialized data.
 .TP
 .B -t
 (\c
@@ -184,6 +190,11 @@ regular Plan 9 format, the default.  These are reversed on the MIPS.
 The Next boot format is 3.  Type 4 in
 .I vl
 creates a MIPS executable for an SGI Unix system.
+In
+.IR jl ,
+type 5 makes ELF64 output, and type 6 makes a headerless image
+with padded segments; the program supplies its own boot header
+if it needs one.
 There is often a type that produces ELF or ELF64 format;
 5 for ELF is common.
 See
