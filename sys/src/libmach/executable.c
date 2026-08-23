@@ -503,8 +503,8 @@ common(int fd, Fhdr *fp, ExecHdr *hp)
 static int
 commonllp64(int, Fhdr *fp, ExecHdr *hp)
 {
-	long pgsize, start;
-	uvlong entry;
+	long pgsize;
+	uvlong entry, start;
 
 	hswal(&hp->e, sizeof(Exec)/sizeof(long), beswal);
 	if(!(hp->e.magic & HDR_MAGIC))
@@ -524,6 +524,16 @@ commonllp64(int, Fhdr *fp, ExecHdr *hp)
 	start = pgsize;
 	if(fp->type == FAMD64)
 		start = 0x200000;
+	/*
+	 * The a.out header doesn't record the base address, and
+	 * 64-bit programs can be linked far above the first page
+	 * (riscv64 user text starts at 1<<36, and gVisor's Go
+	 * binaries were linked at multiples of 512G). Assume that
+	 * an entry above 2G means the text starts at the 2G
+	 * boundary below the entry.
+	 */
+	if(entry > 0x80000000ULL)
+		start = (entry>>31)<<31;
 	settext(fp, entry, start+fp->hdrsz, hp->e.text, fp->hdrsz);
 	setdata(fp, _round(start+fp->txtsz+fp->hdrsz, pgsize),
 		hp->e.data, fp->txtsz+fp->hdrsz, hp->e.bss);
