@@ -3,7 +3,7 @@
 	MOV	R8, s1+0(FP)
 	MOV	R8, R11			/* R11 is pointer */
 	MOVWU	c+8(FP), R12		/* R12 is char */
-	MOVWU	n+12(FP), R10		/* R10 is count */
+	MOV	n+16(FP), R10		/* R10 is count; uintptr */
 	ADD	R10,R11, R13		/* R13 is end pointer */
 
 /*
