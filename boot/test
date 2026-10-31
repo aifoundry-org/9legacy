@@ -23,8 +23,17 @@ smoke)
 	mark=SMOKE
 	timeout=600
 	;;
+world)
+	case ${1:-} in
+	''|*[!a-z0-9]*)	echo "usage: $prog world objtype" >&2; exit 1 ;;
+	esac
+	qemu=(-amd64 -smp $(nproc))
+	guest="rc /usr/glenda/bin/rc/buildworld $1"
+	mark=WORLD
+	timeout=3600
+	;;
 *)
-	echo "usage: $prog build | smoke [-386 | -amd64]" >&2
+	echo "usage: $prog build | smoke [-386 | -amd64] | world objtype" >&2
 	exit 1
 	;;
 esac

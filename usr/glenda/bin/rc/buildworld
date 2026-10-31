@@ -1,0 +1,43 @@
+#!/bin/rc
+# buildworld objtype: build, install and clean the userland of
+# objtype, as buildall's world, on a tree where no other world was
+# built first: the compilers for objtype and the libmach programs
+# are rebuilt from these sources for $cputype before it.
+
+rfork e
+
+fn fatal {
+	echo buildworld: $* failed >[1=2]
+	exit 1
+}
+
+if(! ~ $#* 1){
+	echo usage: buildworld objtype >[1=2]
+	exit usage
+}
+switch($1){
+case 386
+	c=8
+case amd64
+	c=6
+case arm
+	c=5
+case arm64
+	c=7
+case riscv64
+	c=i	# ia, ic and il, which install ja, jc and jl too
+case *
+	echo buildworld: no compiler for $1 >[1=2]
+	exit usage
+}
+
+echo '# tools' $cputype for $1
+@{ objtype=$cputype; cd /sys/src/libmach && mk install && mk clean } || fatal libmach
+for(d in $c^(a c l))
+	@{ objtype=$cputype; cd /sys/src/cmd/$d && mk install && mk clean } || fatal $d
+@{ objtype=$cputype; cd /sys/src/cmd && mk ar.install nm.install size.install strip.install && mk cleanfiles } || fatal tools
+
+echo '# world' $1
+@{ objtype=$1; cd /sys/src && mk install } || fatal world $1
+echo '# clean' $1
+@{ objtype=$1; cd /sys/src && mk clean } || fatal clean $1

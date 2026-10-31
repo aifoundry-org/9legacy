@@ -123,9 +123,13 @@ mk9fat
 boot/test build           # boot 386, build every architecture
 boot/test smoke -386      # boot 386, compile and run the smoke test
 boot/test smoke -amd64    # boot amd64, compile and run the smoke test
+boot/test world riscv64   # boot amd64, build the userland of one architecture
 ```
 
-The build runs on one CPU, the smoke tests on the `boot/qemu` default of four.
+The build runs on one CPU, the smoke tests on the `boot/qemu` default of four,
+and a world on as many as the host has. A world first rebuilds, from the tree,
+the compilers for its architecture and the programs that read its binaries, so
+it needs no other world built before it.
 
 The smoke test is `usr/glenda/src/smoke/smoke.c`. It checks the compiler and
 library, then stresses the allocator, processes, pipes, the file system and the
