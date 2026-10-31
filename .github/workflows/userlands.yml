@@ -1,0 +1,160 @@
+# Build every userland of the tree in parallel, one job for each
+# objtype, on the 9legacy amd64 kernel in qemu with KVM (boot/test
+# world), then the image of each (boot/image), which is built but not
+# pushed.  The 386 and amd64 binaries, libraries and kernels the builds
+# run on come from the 9legacy CD image (boot/getbin), fetched once for
+# all the jobs and cached while the CD image and boot/getbin stay the same.
+name: userlands
+
+on:
+  push:
+    branches: [main, riscv64]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      objtypes:
+        description: objtypes, separated by spaces
+        default: 386 amd64 arm arm64 riscv64
+
+concurrency:
+  group: userlands-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ISO: http://9legacy.org/download/9legacy.iso.bz2
+
+jobs:
+  bin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      key: ${{ steps.iso.outputs.key }}
+      objtypes: ${{ steps.iso.outputs.objtypes }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: iso
+        env:
+          OBJTYPES: ${{ inputs.objtypes || '386 amd64 arm arm64 riscv64' }}
+        run: |
+          set -f
+          for o in $OBJTYPES; do
+            case $o in
+            386|amd64|arm|arm64|riscv64) ;;
+            *) echo "::error::no world for objtype $o"; exit 1 ;;
+            esac
+          done
+          # the CD image's ETag, date and size, and the scripts that
+          # copy from it, name its binaries
+          hdr=$(curl -fsSI "$ISO") || { echo "::error::HEAD $ISO failed"; exit 1; }
+          h=$(echo "$hdr" | tr -d '\r' | tr '[:upper:]' '[:lower:]' |
+            grep -e '^etag:' -e '^last-modified:' -e '^content-length:' | sort)
+          test -n "$h" || { echo "::error::no ETag, Last-Modified or Content-Length for $ISO"; exit 1; }
+          g=$(cat boot/mkdirs boot/getbin | sha256sum | cut -c1-8)
+          echo "key=9legacy-bin-$(echo "$h" | sha256sum | cut -c1-16)-$g" >>"$GITHUB_OUTPUT"
+          echo "objtypes=$(jq -cn --arg o "$OBJTYPES" '$o | split(" ") | map(select(. != ""))')" >>"$GITHUB_OUTPUT"
+
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: bin.tar
+          key: ${{ steps.iso.outputs.key }}
+          lookup-only: true
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl bzip2 build-essential \
+            libx11-dev libxext-dev libxt-dev libfontconfig1-dev
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Check out plan9port
+        uses: actions/checkout@v7
+        with:
+          repository: 9fans/plan9port
+          path: plan9port
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build plan9port
+        run: |
+          cd plan9port
+          ./INSTALL
+          if ! test -x bin/9660srv || ! test -x bin/9p; then
+            echo '::error::plan9port build incomplete: 9660srv/9p missing'
+            exit 1
+          fi
+          echo "PLAN9=$PWD" >>"$GITHUB_ENV"
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Copy the CD image's binaries
+        run: |
+          export PATH="$PATH:$PLAN9/bin"
+          ./boot/mkdirs
+          ./boot/getbin
+          # what getbin copied, none of the tree's own files
+          git ls-files -z --others 386 amd64 acme/bin/386 acme/bin/amd64 |
+            tar --null -T - -cf bin.tar
+          tar -tf bin.tar | wc -l
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: bin.tar
+          key: ${{ steps.iso.outputs.key }}
+
+  world:
+    needs: bin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        objtype: ${{ fromJSON(needs.bin.outputs.objtypes) }}
+    env:
+      OBJTYPE: ${{ matrix.objtype }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: bin.tar
+          key: ${{ needs.bin.outputs.key }}
+          fail-on-cache-miss: true
+
+      - name: Populate the checkout
+        run: |
+          ./boot/mkdirs
+          tar -xf bin.tar
+          rm bin.tar
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 expect
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm
+
+      - name: Build the ${{ matrix.objtype }} userland
+        run: SERIAL=$RUNNER_TEMP/serial.log ./boot/test world "$OBJTYPE"
+
+      - name: Build the ${{ matrix.objtype }} image
+        run: |
+          ./boot/image "$OBJTYPE" "9legacy-$OBJTYPE:${GITHUB_SHA::12}"
+          docker image ls "9legacy-$OBJTYPE"
+
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: serial-${{ matrix.objtype }}
+          path: ${{ runner.temp }}/serial.log
+          if-no-files-found: ignore

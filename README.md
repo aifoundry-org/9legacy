@@ -145,6 +145,10 @@ boot/image riscv64        # image 9legacy-riscv64
 docker run -d -p 564:564 9legacy-riscv64
 ```
 
+GitHub Actions also builds every userland and its image in parallel, one job
+each, with `boot/test world` and `boot/image`. The images are not pushed. See
+`.github/workflows/userlands.yml`.
+
 # 3. Thanks
 
 We thank Russ Cox, who made the original scripts to easily boot a Plan 9 file
