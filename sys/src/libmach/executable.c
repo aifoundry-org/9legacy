@@ -283,6 +283,15 @@ ExecTable exectab[] =
 		sizeof(Exec),
 		beswal,
 		common },
+	{ B_MAGIC,			/* riscv64 j.out and boot image */
+		"riscv64 plan 9 executable",
+		"riscv64 plan 9 dlm",
+		FRISCV64,
+		1,
+		&mriscv64,
+		sizeof(Exec)+8,
+		nil,
+		commonllp64 },
 	{ 0 },
 };
 

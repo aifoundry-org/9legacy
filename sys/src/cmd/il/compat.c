@@ -18,6 +18,23 @@ malloc(uintptr n)
 	return p;
 }
 
+void*
+mallocz(uintptr n, int clr)
+{
+	void *p;
+
+	while(n & 7)
+		n++;
+	while(nhunk < n)
+		gethunk();
+	p = hunk;
+	if (clr)
+		memset(p, 0, n);
+	nhunk -= n;
+	hunk += n;
+	return p;
+}
+
 void
 free(void *p)
 {

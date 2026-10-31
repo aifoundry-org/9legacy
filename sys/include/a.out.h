@@ -33,6 +33,7 @@ struct	Exec
 #define	R_MAGIC		_MAGIC(HDR_MAGIC, 28)	/* arm64 */
 #define	Z_MAGIC		_MAGIC(0, 29)		/* riscv */
 #define	Y_MAGIC		_MAGIC(0, 30)		/* riscv64 */
+#define	B_MAGIC		_MAGIC(HDR_MAGIC, 30)	/* riscv64 with 64-bit entry */
 
 #define	MIN_MAGIC	8
 #define	MAX_MAGIC	30			/* <= 90 */
