@@ -136,6 +136,15 @@ library, then stresses the allocator, processes, pipes, the file system and the
 network. GitHub Actions runs all three on every push and pull request. See
 `.github/workflows/ci.yml`.
 
+`boot/image` builds a container image of the sources and of a userland that
+`boot/test world` built. The tree's u9fs serves them over 9P on port 564, as
+`boot/qemu -u9fs` serves the tree, with no authentication. See `boot/Dockerfile`.
+
+```
+boot/image riscv64        # image 9legacy-riscv64
+docker run -d -p 564:564 9legacy-riscv64
+```
+
 # 3. Thanks
 
 We thank Russ Cox, who made the original scripts to easily boot a Plan 9 file

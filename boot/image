@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# boot/image objtype [name]: build the image name (9legacy-objtype by
+# default) of boot/Dockerfile from the sources at HEAD and the userland
+# of objtype installed in this tree by boot/test world objtype: its
+# bin, lib and init, acme's binaries and the rc scripts the build
+# installs.  The image is only built, not pushed anywhere.
+
+set -e
+cd $(dirname $0)/..
+
+prog=$(basename $0)
+case $# in
+1|2)	;;
+*)	echo "usage: $prog objtype [name]" >&2; exit 1 ;;
+esac
+o=$1
+case $o in
+''|*[!a-z0-9]*)	echo "usage: $prog objtype [name]" >&2; exit 1 ;;
+esac
+name=${2:-9legacy-$o}
+if [ -z "$(ls $o/bin 2>/dev/null)" ]; then
+	echo "$prog: no $o userland: run boot/test world $o" >&2
+	exit 1
+fi
+
+ctx=$(mktemp -d /tmp/9legacy-image.XXXX)
+trap 'rm -rf -- "$ctx"' EXIT
+mkdir $ctx/tree
+git archive HEAD | tar -x -C $ctx/tree
+tar -cf - $(ls -d $o/bin $o/lib $o/init acme/bin/$o rc/bin/postscript 2>/dev/null) | tar -x -C $ctx/tree
+cp boot/Dockerfile $ctx/
+docker build -t "$name" \
+	--label org.opencontainers.image.title="9legacy $o" \
+	--label org.opencontainers.image.description="9legacy's sources and $o userland, served over 9P by u9fs" \
+	--label org.opencontainers.image.revision=$(git rev-parse HEAD) \
+	$ctx
