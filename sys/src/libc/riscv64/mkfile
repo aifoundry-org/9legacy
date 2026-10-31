@@ -17,6 +17,7 @@ SFILES=\
 	memset.s\
 #	setsb.s\
 	setjmp.s\
+	sqrt.s\
 #	strchr.s\
 #	strcmp.s\
 #	strcpy.s\
