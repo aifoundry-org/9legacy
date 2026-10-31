@@ -17,7 +17,7 @@ fn clean {
 	@{ objtype=$1; cd /sys/src && mk clean } || fatal clean $1
 }
 
-for(o in 386 amd64 arm arm64)
+for(o in 386 amd64 arm arm64 riscv64)
 	world $o
 
 echo '# kernel 386'
@@ -29,7 +29,7 @@ echo '# kernel arm'
 echo '# kernel arm64'
 @{ objtype=arm64; cd /sys/src/9/bcm64 && mk 'CONF=pi5' } || fatal kernel arm64
 
-for(o in 386 amd64 arm arm64)
+for(o in 386 amd64 arm arm64 riscv64)
 	clean $o
 
 echo '# clean kernels'
