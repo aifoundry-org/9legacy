@@ -378,8 +378,8 @@ syscall(Ureg* ureg)
 	kexit(ureg);
 }
 
-long
-execregs(ulong entry, ulong ssize, ulong nargs)
+uintptr
+execregs(uintptr entry, ulong ssize, ulong nargs)
 {
 	uintptr sp;
 	Ureg *ureg;

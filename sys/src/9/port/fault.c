@@ -6,7 +6,7 @@
 #include	"../port/error.h"
 
 int
-fault(ulong addr, int read)
+fault(uintptr addr, int read)
 {
 	Segment *s;
 	char *sps;
@@ -58,18 +58,19 @@ faulterror(char *s, Chan *c, int freemem)
 	pexit(s, freemem);
 }
 
-void	(*checkaddr)(ulong, Segment *, Page *);
-ulong	addr2check;
+void	(*checkaddr)(uintptr, Segment *, Page *);
+uintptr	addr2check;
 
 int
-fixfault(Segment *s, ulong addr, int read, int doputmmu)
+fixfault(Segment *s, uintptr addr, int read, int doputmmu)
 {
 	int type;
 	int ref;
 	Pte **p, *etp;
-	ulong mmuphys=0, soff;
+	uintptr mmuphys=0;
+	ulong soff;
 	Page **pg, *lkp, *new, *mpg;
-	Page *(*fn)(Segment*, ulong);
+	Page *(*fn)(Segment*, uintptr);
 
 	addr &= ~(BY2PG-1);
 	soff = addr-s->base;
@@ -191,7 +192,7 @@ fixfault(Segment *s, ulong addr, int read, int doputmmu)
 }
 
 void
-pio(Segment *s, ulong addr, ulong soff, Page **p)
+pio(Segment *s, uintptr addr, ulong soff, Page **p)
 {
 	Page *new;
 	KMap *k;
@@ -297,7 +298,7 @@ done:
  * Called only in a system call
  */
 int
-okaddr(ulong addr, ulong len, int write)
+okaddr(uintptr addr, ulong len, int write)
 {
 	Segment *s;
 
@@ -310,13 +311,13 @@ okaddr(ulong addr, ulong len, int write)
 			len -= s->top - addr;
 			addr = s->top;
 		}
-	pprint("suicide: invalid address %#lux/%lud in sys call pc=%#lux\n",
+	pprint("suicide: invalid address %#p/%lud in sys call pc=%#p\n",
 		addr, len, userpc());
 	return 0;
 }
 
 void
-validaddr(ulong addr, ulong len, int write)
+validaddr(uintptr addr, ulong len, int write)
 {
 	if(!okaddr(addr, len, write)){
 		postnote(up, 1, "sys: bad address in syscall", NDebug);
@@ -352,7 +353,7 @@ vmemchr(void *s, int c, int n)
 }
 
 Segment*
-seg(Proc *p, ulong addr, int dolock)
+seg(Proc *p, uintptr addr, int dolock)
 {
 	Segment **s, **et, *n;
 
@@ -375,12 +376,13 @@ seg(Proc *p, ulong addr, int dolock)
 	return 0;
 }
 
-extern void checkmmu(ulong, ulong);
+extern void checkmmu(uintptr, uintptr);
 void
 checkpages(void)
 {
 	int checked;
-	ulong addr, off;
+	uintptr addr;
+	ulong off;
 	Pte *p;
 	Page *pg;
 	Segment **sp, **ep, *s;

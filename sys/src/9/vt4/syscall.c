@@ -323,7 +323,7 @@ sysexecstack(uintptr stack, int argc)
 	return STACKALIGN(stack);
 }
 
-long
+uintptr
 execregs(ulong entry, ulong ssize, ulong nargs)
 {
 	ulong *sp;

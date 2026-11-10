@@ -1030,7 +1030,7 @@ kprocchild(Proc *p, void (*func)(void*), void *arg)
 }
 
 /* set up user registers before return from exec() */
-long
+uintptr
 execregs(ulong entry, ulong ssize, ulong nargs)
 {
 	Ureg *ur;

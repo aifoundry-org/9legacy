@@ -315,7 +315,7 @@ mmurelease(Proc* proc)
 }
 
 void
-putmmu(ulong va, ulong pa, Page* page)
+putmmu(uintptr va, uintptr pa, Page* page)
 {
 	int x, s;
 	Page *pg;
@@ -431,7 +431,7 @@ mmukmap(uintptr va, uintptr pa, usize size)
 }
 
 void
-checkmmu(ulong va, ulong pa)
+checkmmu(uintptr va, uintptr pa)
 {
 	int x;
 	LPTE *l1, *pte;

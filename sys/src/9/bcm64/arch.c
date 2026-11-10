@@ -93,7 +93,7 @@ kexit(Ureg*)
 /*
  *  return the userpc the last exception happened at
  */
-ulong
+uintptr
 userpc(void)
 {
 	Ureg *ureg = up->dbgreg;
@@ -137,7 +137,7 @@ kprocchild(Proc *p, void (*func)(void*), void *arg)
 /*
  *  pc output by dumpaproc
  */
-ulong
+uintptr
 dbgpc(Proc* p)
 {
 	Ureg *ureg;

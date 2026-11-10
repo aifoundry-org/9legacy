@@ -41,7 +41,7 @@ struct Globalseg
 	Rendez	replywait;	/* where requestor waits */
 	Proc	*kproc;
 	char	*data;
-	long	off;
+	uintptr	off;
 	int	dlen;
 	int	cmd;	
 	char	err[64];
@@ -362,7 +362,8 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 {
 	Cmdbuf *cb;
 	Globalseg *g;
-	ulong va, len, top;
+	uintptr va, top;
+	ulong len;
 
 	if(c->qid.type == QTDIR)
 		error(Eperm);
@@ -376,7 +377,7 @@ segmentwrite(Chan *c, void *a, long n, vlong voff)
 				error("already has a virtual address");
 			if(cb->nf < 3)
 				error(Ebadarg);
-			va = strtoul(cb->f[1], 0, 0);
+			va = strtoull(cb->f[1], 0, 0);
 			len = strtoul(cb->f[2], 0, 0);
 			top = PGROUND(va + len);
 			va = va&~(BY2PG-1);

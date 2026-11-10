@@ -16,9 +16,9 @@ typedef struct Xhdr Xhdr;
 
 struct Hole
 {
-	ulong	addr;
+	uintptr	addr;
 	ulong	size;
-	ulong	top;
+	uintptr	top;
 	Hole*	link;
 };
 
@@ -68,8 +68,8 @@ xinit(void)
 			n = maxpages;
 		/* first give to kernel */
 		if(n > 0){
-			m->kbase = (ulong)(uintptr)KADDR(m->base);
-			m->klimit = (ulong)(uintptr)KADDR(m->base+n*BY2PG);
+			m->kbase = (uintptr)KADDR(m->base);
+			m->klimit = (uintptr)KADDR(m->base+n*BY2PG);
 			xhole(m->base, n*BY2PG);
 			kpages -= n;
 		}
@@ -200,9 +200,9 @@ xmerge(void *vp, void *vq)
 }
 
 void
-xhole(ulong addr, ulong size)
+xhole(uintptr addr, ulong size)
 {
-	ulong top;
+	uintptr top;
 	Hole *h, *c, **l;
 
 	if(size == 0)
@@ -267,7 +267,7 @@ xsummary(void)
 	i = 0;
 	for(h = xlists.table; h; h = h->link) {
 		if (0) {
-			print("addr %#.8lux top %#.8lux size %lud\n",
+			print("addr %#p top %#p size %lud\n",
 				h->addr, h->top, h->size);
 			delay(10);
 		}

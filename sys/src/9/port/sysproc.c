@@ -221,14 +221,14 @@ l2be(long l)
 	return (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | cp[3];
 }
 
-ulong
+uvlong
 ll2be(uvlong l)
 {
 	uchar *cp;
 
 	cp = (uchar*)&l;
 	return ((uvlong)cp[0]<<56) | ((uvlong)cp[1]<<48) | ((uvlong)cp[2]<<40) | ((uvlong)cp[3]<<32) |
-			(cp[4]<<24) | (cp[5]<<16) | (cp[6]<<8) | cp[7];
+			((ulong)cp[4]<<24) | (cp[5]<<16) | (cp[6]<<8) | cp[7];
 }
 
 static char*
@@ -259,7 +259,7 @@ uintptr
 sysexec(uintptr *arg)
 {
 	Segment *s, *ts;
-	ulong t, d, b;
+	uintptr t, d, b, bssend;
 	int i, compat32;
 	Chan *tc;
 	char **argv, **argp;
@@ -269,7 +269,7 @@ sysexec(uintptr *arg)
 
 	char *a, *charp, *args, *file, *file0;
 	char *progarg[sizeof(Exec)/2+1], *elem, progelem[64];
-	ulong ssize, spage, nargs, nbytes, n, bssend;
+	ulong ssize, spage, nargs, nbytes, n;
 	int indir;
 	struct {
 		Exec;
@@ -594,7 +594,7 @@ sysexec(uintptr *arg)
 	for(i=0; i<=f->maxfd; i++)
 		fdclose(i, CCEXEC);
 
-	return (ulong)execregs(entry, ssize, nargs);
+	return execregs(entry, ssize, nargs);
 }
 
 int
@@ -800,7 +800,7 @@ uintptr
 syssegbrk(uintptr *arg)
 {
 	int i;
-	ulong addr;
+	uintptr addr;
 	Segment *s;
 
 	addr = arg[0];
@@ -832,7 +832,7 @@ uintptr
 syssegdetach(uintptr *arg)
 {
 	int i;
-	ulong addr;
+	uintptr addr;
 	Segment *s;
 
 	qlock(&up->seglock);
@@ -877,7 +877,7 @@ uintptr
 syssegfree(uintptr *arg)
 {
 	Segment *s;
-	ulong from, to;
+	uintptr from, to;
 
 	from = arg[0];
 	s = seg(up, from, 1);
@@ -902,8 +902,6 @@ syssegfree(uintptr *arg)
 uintptr
 sysbrk_(uintptr *arg)
 {
-	if(arg[0] != (ulong)arg[0])
-		error(Enovmem);
 	return ibrk(arg[0], BSEG);
 }
 

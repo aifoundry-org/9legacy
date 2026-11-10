@@ -642,7 +642,7 @@ syscall(Ureg*)
 	panic("syscall");
 }
 
-long
+uintptr
 execregs(ulong entry, ulong ssize, ulong nargs)
 {
 	ulong *sp;
