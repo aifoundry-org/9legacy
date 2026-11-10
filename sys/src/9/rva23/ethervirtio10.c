@@ -19,11 +19,11 @@
 #include "dat.h"
 #include "fns.h"
 #include "io.h"
-#include "../port/pci.h"
+#include "pci.h"
 #include "../port/error.h"
 #include "../port/netif.h"
-#include "../port/etherif.h"
-#include "../port/virtio10.h"
+#include "etherif.h"
+#include "virtio10.h"
 
 typedef struct Vheader Vheader;
 typedef struct Vqueue Vqueue;
@@ -135,7 +135,6 @@ struct Ctlr {
 	ulong	feat[2];
 	int	nqueue;
 
-	Bpool	pool;
 
 	/* virtioether has 3 queues: rx, tx and ctl */
 	Vqueue	queue[3];
@@ -256,9 +255,6 @@ rxproc(void *v)
 	header = smalloc(VheaderSize);
 	blocks = smalloc(sizeof(Block*) * (q->qsize/2));
 
-	ctlr->pool.size = ETHERMAXTU;
-	growbp(&ctlr->pool, q->qsize*2);
-
 	for(i = 0; i < q->qsize/2; i++){
 		j = i << 1;
 		q->desc[j].addr = PADDR(header);
@@ -284,12 +280,12 @@ rxproc(void *v)
 			i = q->avail->idx & (q->qmask >> 1);
 			if(blocks[i] != nil)
 				break;
-			if((b = iallocbp(&ctlr->pool)) == nil)
+			if((b = iallocb(ETHERMAXTU)) == nil)
 				break;
 			blocks[i] = b;
 			j = (i << 1) | 1;
 			q->desc[j].addr = PADDR(b->rp);
-			q->desc[j].len = BALLOC(b);
+			q->desc[j].len = b->lim - b->rp;
 			coherence();
 			q->avail->idx++;
 		} while(q->avail->idx != q->used->idx);
@@ -308,7 +304,7 @@ rxproc(void *v)
 
 			blocks[i] = nil;
 			b->wp = b->rp + u->len - VheaderSize;
-			etheriq(edev, b);
+			etheriq(edev, b, 1);
 			q->lastused++;
 		}
 	}
@@ -427,27 +423,30 @@ attach(Ether* edev)
 	kproc(name, txproc, edev);
 }
 
-static char*
-ifstat(void *a, char *s, char *e)
+static long
+ifstat(Ether *edev, void *a, long n, ulong offset)
 {
-	Ether *edev;
+	char *p, *s, *e;
 	Ctlr *ctlr;
 	Vqueue *q;
 	int i;
 
-	if(s >= e)
-		return s;
-	edev = a;
+	p = smalloc(READSTR);
+	s = p;
+	e = p+READSTR;
 	ctlr = edev->ctlr;
-	s = seprint(s, e, "devfeat %32.32lub %32.32lub\n", ctlr->feat[1], ctlr->feat[0]);
-	s = seprint(s, e, "devstatus %8.8ub\n", vin8(&ctlr->cfg, Vconf_status));
+	s = seprint(s, e, "devfeat %#8.8lux %#8.8lux\n", ctlr->feat[1], ctlr->feat[0]);
+	s = seprint(s, e, "devstatus %#2.2ux\n", vin8(&ctlr->cfg, Vconf_status));
 	for(i = 0; i < ctlr->nqueue; i++){
 		q = &ctlr->queue[i];
 		s = seprint(s, e,
 			"vq%d %#p size %d avail->idx %d used->idx %d lastused %hud nintr %ud nnote %ud\n",
 			i, q, q->qsize, q->avail->idx, q->used->idx, q->lastused, q->nintr, q->nnote);
 	}
-	return s;
+	USED(s);
+	n = readstr(offset, a, n, p);
+	free(p);
+	return n;
 }
 
 static void
