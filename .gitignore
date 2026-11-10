@@ -16,6 +16,8 @@ arm/init
 arm/lib
 arm/s9*
 bootdisk.img
+dist/build/data
+dist/build/log
 env
 lib/audio
 mail/box/glenda/mbox
@@ -25,8 +27,12 @@ riscv64/bin
 riscv64/init
 riscv64/lib
 sys/lib/dist/bin
+sys/lib/dist/pc/cddisk
 sys/lib/dist/pc/multi
+sys/lib/dist/web.protect
 sys/lib/firmware
 sys/src/9k/root/nvram
 usr/djc
 usr/glenda/tmp
+usr/setup
+usr/web

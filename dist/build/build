@@ -10,6 +10,10 @@ fn bind{
 	/$cputype/bin/bind $*
 }
 
+# /tmp from the running system, not from the tree being built
+rm -f /srv/buildtmp
+ramfs -S buildtmp
+
 # root
 bind  $root /
 bind -b '#/' /
@@ -26,7 +30,8 @@ bind -a '#S' /dev
 bind /$cputype/bin /bin
 bind -a /rc/bin /bin
 
-ramfs
+mount -c /srv/buildtmp /tmp
+rm -f /srv/buildtmp
 mkdir /n/newfs
 
 unmount /mnt/term

@@ -7,12 +7,71 @@ prog=$(basename $0)
 task=${1:-}
 shift || true
 
+# the Raspberry Pi firmware that dist/build/mod unpacks
+getfw() {
+	local tmp=$(mktemp -d) f
+	mkdir -p $tmp/firmware-nonfree/brcm $(dirname $1)
+	for f in brcmfmac43430-sdio.bin brcmfmac43430-sdio.txt \
+		brcmfmac43436-sdio.bin brcmfmac43436-sdio.clm_blob brcmfmac43436-sdio.txt \
+		brcmfmac43455-sdio.bin brcmfmac43455-sdio.clm_blob brcmfmac43455-sdio.txt; do
+		curl -sfL -o $tmp/firmware-nonfree/brcm/$f \
+			https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$f
+	done
+	tar -C $tmp --format=ustar -cjf $1 firmware-nonfree
+	rm -rf $tmp
+}
+
+# the tree the CD is made of: the 9legacy patches applied to the
+# Bell Labs tree, which is this repository, without the files that
+# only serve it, and with the 386 and amd64 binaries getbin provides
+# to bootstrap the build
+gettree() {
+	local rev=$1 src=usr/setup/sources/plan9 f
+	rm -rf usr/setup
+	mkdir -p $src
+	git archive $rev | tar -x -C $src
+	$src/boot/mkdirs
+	rm -rf $src/.github $src/.gitignore $src/README.md $src/boot \
+		$src/cfg/pxe/525400123456 $src/dist/build \
+		$src/usr/glenda/bin/rc/{buildall,mk9fat,mkbootpbs,mkpxeboot,smoke} \
+		$src/usr/glenda/src $src/usr/glenda/bin/amd64 \
+		$src/acme/bin/power64 $src/power64/bin/* $src/power64/lib/ape \
+		$src/riscv/bin/git
+	mkdir -p $src/usr/glenda/bin/mips
+	: >$src/sys/lib/dist/cdstub/9load
+	: >$src/sys/lib/dist/cdstub/pbsraw
+	for f in 386/bin 386/lib amd64/bin amd64/lib acme/bin/386 acme/bin/amd64; do
+		cp -a $f/. $src/$f
+	done
+	cp -a 386/9* 386/init 386/mbr 386/pbs* $src/386
+	rm -f $src/386/9pcflop
+	cp -a amd64/9* amd64/init $src/amd64
+	# git has neither group write permission nor these empty files
+	chmod -R g+w $src
+	for f in adm/keys adm/netkeys sys/lib/sysconfig/auth/boundary/{httppasswords,keys,netkeys}; do
+		: >$src/$f
+		chmod 660 $src/$f
+	done
+}
+
 case $task in
 build)
 	qemu=(-386 -smp 1)
 	guest='rc /usr/glenda/bin/rc/buildall'
 	mark=BUILD
 	timeout=5400
+	;;
+cd)
+	# an installed system has these; the checkout does not
+	: >>sys/lib/dist/cdstub/9load
+	: >>sys/lib/dist/cdstub/pbsraw
+	fw=dist/build/data/firmware-nonfree.tar.bz2
+	[ -f $fw ] || getfw $fw
+	gettree ${1:-HEAD}
+	qemu=(-386 -smp ${SMP:-$(nproc)})
+	guest='@{cd /dist/build && target=9legacy ./main}'
+	mark=CD
+	timeout=14400
 	;;
 smoke)
 	case ${1:-} in
@@ -24,7 +83,7 @@ smoke)
 	timeout=600
 	;;
 *)
-	echo "usage: $prog build | smoke [-386 | -amd64]" >&2
+	echo "usage: $prog build | cd [rev] | smoke [-386 | -amd64]" >&2
 	exit 1
 	;;
 esac

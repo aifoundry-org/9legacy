@@ -6,10 +6,6 @@ rfork en
 
 task=( \
 	prepare \
-	download \
-	patch \
-	checkpatch \
-	cleanpatch \
 	mod \
 	build \
 	checkbuild \
@@ -27,11 +23,6 @@ if not
 	rm -f log/*
 
 echo target is $target
-
-if (! test -f $patches){
-	echo $patches does not exist
-	exit
-}
 
 for(i in $task){
 	echo -n $i'... '

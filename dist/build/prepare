@@ -17,8 +17,12 @@ EOF
 sed /'mk cddisk'/d /sys/lib/dist/mkfile > /sys/lib/dist/mkfile.new
 mv /sys/lib/dist/mkfile.new /sys/lib/dist/mkfile
 
-rm -rf $build
-mkdir $build
+# the tree to build is put in $build/sources/plan9 beforehand
+if(! test -d $build/sources/plan9){
+	echo $build/sources/plan9 does not exist
+	exit sources
+}
+rm -rf $build/dist $build/other
 chmod +t $build
 
 if(test -d /usr/web)
@@ -30,8 +34,6 @@ chmod +t /usr/web
 mkdir $build/dist
 mkdir $build/other
 mkdir $build/other/dist
-mkdir $build/sources
-mkdir $build/sources/plan9
 rm -rf /sys/lib/dist/web.protect
 mkdir /sys/lib/dist/web.protect
 chmod +t /sys/lib/dist/web.protect

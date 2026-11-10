@@ -178,17 +178,17 @@ fn firmware{
 		if (test -f $src9/sys/src/9/bcm/pi2) {
 			for (i in brcmfmac43430-sdio.^(bin txt))
 				#hget -o $src9/sys/lib/firmware/$i https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$i
-				cd /tmp && tar xzf /sys/lib/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
+				cd /tmp && tar xzf /dist/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
 		}
 		if (test -f $src9/sys/src/9/bcm/pi4) {
 			for (i in brcmfmac43436-sdio.^(bin clm_blob txt))
 				#hget -o $src9/sys/lib/firmware/$i https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$i
-				cd /tmp && tar xzf /sys/lib/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
+				cd /tmp && tar xzf /dist/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
 		}
 		if (test -f $src9/sys/src/9/bcm/pi4) {
 			for (i in brcmfmac43455-sdio.^(bin clm_blob txt))
 				#hget -o $src9/sys/lib/firmware/$i https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$i
-				cd /tmp && tar xzf /sys/lib/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
+				cd /tmp && tar xzf /dist/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
 		}
 	}
 }
