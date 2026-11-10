@@ -404,6 +404,21 @@ upallocpdb(void)
 }
 
 /*
+ * Clear a page before it is linked into the page directory as a
+ * page table: from then on the processor may load its entries into
+ * the tlb at any time, and a stale entry would not be flushed.
+ */
+static void
+clearpt(Page *page)
+{
+	void *pt;
+
+	pt = tmpmap(page);
+	memset(pt, 0, BY2PG);
+	tmpunmap(pt);
+}
+
+/*
  * Update the mmu in response to a user fault.  pa may have PTEWRITE set.
  */
 void
@@ -440,9 +455,8 @@ putmmu(ulong va, ulong pa, Page*)
 			page = up->mmufree;
 			up->mmufree = page->next;
 		}
+		clearpt(page);
 		vpd[PDX(va)] = PPN(page->pa)|PTEUSER|PTEWRITE|PTEVALID;
-		/* page is now mapped into the VPT - clear it */
-		memset((void*)(VPT+PDX(va)*BY2PG), 0, BY2PG);
 		page->daddr = PDX(va);
 		page->next = up->mmuused;
 		up->mmuused = page;
@@ -832,9 +846,9 @@ kmap(Page *page)
 		spllo();
 		up->kmaptable = newpage(0, 0, 0);
 		splhi();
+		clearpt(up->kmaptable);
 		vpd[PDX(KMAP)] = up->kmaptable->pa|PTEWRITE|PTEVALID;
 		flushpg((ulong)kpt);
-		memset(kpt, 0, BY2PG);
 		kpt[0] = page->pa|PTEWRITE|PTEVALID;
 		up->lastkmap = 0;
 		splx(s);
