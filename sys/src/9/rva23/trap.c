@@ -440,8 +440,8 @@ badpagefault(Ureg *ureg, uintptr addr, int read, int insyscall)
 		dumpregs(ureg);
 		panic("fault: addr %#p pc %#p", addr, ureg->pc);
 	}
-	snprint(buf, sizeof buf, "sys: trap: fault %s addr=%#p pc=%#p",
-		read? "read": "write", addr, ureg->pc);
+	snprint(buf, sizeof buf, "sys: trap: fault %s addr=%#p",
+		read? "read": "write", addr);
 	postnote(up, 1, buf, NDebug);
 	if(insyscall)
 		error(buf);
