@@ -14,8 +14,6 @@
  */
 #define	PGSHIFT		12		/* log(BY2PG) */
 #define	BY2PG		(1ULL<<PGSHIFT)	/* bytes per page */
-#define	ROUND(s, sz)	(((s)+(sz-1))&~(sz-1))
-#define	PGROUND(s)	ROUND(s, BY2PG)
 
 /* effective virtual address space */
 #define EVASHIFT	39
@@ -96,6 +94,9 @@
 #define	UTZERO		(UZERO)		/* user text start */
 #define	USTKTOP		((UZERO<<1)-BY2PG)	/* user segment end +1 */
 #define	USTKSIZE	(16*1024*1024)		/* user stack size */
+#define	UTROUND(t)	ROUNDUP((t), BY2PG)	/* jl -R4096 by default */
+#define	TSTKTOP		(USTKTOP-USTKSIZE)	/* sysexec temporary stack */
+#define	TSTKSIZ	 	256			/* pages in new stack; limits exec args */
 
 #define BLOCKALIGN	64			/* only used in allocb.c */
 
@@ -154,8 +155,6 @@
  */
 #define	PHYSDRAM	0
 
-#define MIN(a, b)	((a) < (b)? (a): (b))
-#define MAX(a, b)	((a) > (b)? (a): (b))
 /* from Geoff */
 #define MASK(w)	 ((1u  <<(w)) - 1)
 #define VMASK(w) ((1ull<<(w)) - 1)

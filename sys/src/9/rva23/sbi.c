@@ -108,8 +108,7 @@ sbigetc(void)
 	c.status = 0;
 	c.error = 0;
 	ret = sbicall(2, 0, 0, &c, nil);
-	//print("getchar: ret %x, status %x, error %x\n", ret, c.status, c.error);
-	// sbi seems not to set anything in ret. oh well.
+	/* sbi seems not to set anything in ret */
 	return ret;
 }
 

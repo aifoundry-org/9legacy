@@ -7,9 +7,8 @@
 
 #include <tos.h>
 #include "ureg.h"
-#include "../rva23/sysreg.h"
+#include "sysreg.h"
 #include "riscv64.h"
-#include "/sys/src/libc/9syscall/sys.h"
 
 /* instruction decoding */
 #define UNCOMPINST(pc)	(*(ushort *)(pc) | *(ushort *)((pc) + 2) << 16)
@@ -17,31 +16,14 @@
 
 enum {
 	Trapdebug	= 0,
-	Probedebug	= 0,
-	Intrdebug	= 0,
-	Tryallcpus	= 0,
-	TrapSpew	= 0,
-	TrapOhShit  = 0,
-	TrapSys		= 0,
-
-	Ntimevec = 20,		/* number of time buckets for each intr */
-	Ncauses = Ngintr + Nlintr + Nexc,	/* # of Vctls */
 };
 enum Faulttypes {
 	Unknownflt, Exception, Localintr, Globalintr, Nfaulttypes,
 };
 
 void
-setupwatchpts(Proc*, Watchpt*, int n)
+dumpstack(void)
 {
-	if(n > 0)
-		error("no watchpoints");
-}
-
-void
-dumpstack(void) 
-{
-	// TODO
 }
 
 void
@@ -57,47 +39,21 @@ setregisters(Ureg* ureg, char* pureg, char* uva, int n)
 uintptr
 userpc(void)
 {
-	Ureg *ur = up->dbgreg;
+	Ureg *ur;
+
+	ur = up->dbgreg;
 	return ur->pc;
 }
 
 uintptr
-dbgpc(Proc *)
+dbgpc(Proc *p)
 {
-	Ureg *ur = up->dbgreg;
+	Ureg *ur;
+
+	ur = p->dbgreg;
 	if(ur == nil)
 		return 0;
 	return ur->pc;
-}
-
-void
-procfork(Proc *p)
-{
-	fpuprocfork(p);
-}
-
-void
-procsetup(Proc *p)
-{
-	fpuprocsetup(p);
-}
-
-void
-procsave(Proc *p)
-{
-if (0)	print("procsave what is it for? %p\n", p);
-//	fpuprocsave(p);
-//	if(p->kp == 0)
-//		p->tpidr = sysrd(TPIDR_EL0);
-	putasid(p);	// release asid
-}
-
-void
-procrestore(Proc *p)
-{
-	USED(p);
-if (0)	print("procresotre what is it for %p\n", p);
-//	fpuprocrestore(p);
 }
 
 void
@@ -105,7 +61,7 @@ setkernur(Ureg *ureg, Proc *p)
 {
 	ureg->pc = p->sched.pc;
 	ureg->sp = p->sched.sp;
-	ureg->link = (uintptr)sched;
+	ureg->r1 = (uintptr)sched;
 }
 
 int
@@ -122,98 +78,48 @@ userureg(Ureg* ureg)
 void
 callwithureg(void (*f) (Ureg *))
 {
-	print("callwithureg %p\n", f);
 	Ureg u;
-	
+
 	u.pc = getcallerpc(&f);
-	u.sp = (uintptr) &f;
+	u.sp = (uintptr)&f;
 	f(&u);
 }
 
-void
-kprocchild(Proc *p, void (*entry)(void))
+static void
+linkproc(void)
 {
-	p->sched.pc = (uintptr) entry;
-	p->sched.sp = (uintptr) p - 16;
-	*(void**)p->sched.sp = kprocchild;	/* fake */
-}
-
-void
-evenaddr(uintptr addr)
-{
-	if(addr & 2){
-		postnote(up, 1, "sys: odd word address", NDebug);
-		error(Ebadarg);
-	}
-	if(addr & 1){
-		postnote(up, 1, "sys: odd byte address", NDebug);
-		error(Ebadarg);
-	}
+	spllo();
+	up->kpfun(up->kparg);
+	pexit("kproc exiting", 0);
 }
 
 /*
- * the child bypasses the syscall exit path on its first return to
- * user mode, so kexit never stamps its Tos: it would run with the
- * parent's pid (copied with the stack) until its next syscall.
- * libc's malloc locking compares _tos->pid across a pool operation
- * and aborts the process if the pid changes mid-lock, which is
- * exactly what happens when the first malloc sbrks.
+ *  setup stack and initial PC for a new kernel proc.
  */
 void
-forkret(void)
+kprocchild(Proc *p, void (*func)(void*), void *arg)
 {
-	kexit(nil);
-	sysrforkret();
+	p->sched.pc = PTR2UINT(linkproc);
+	p->sched.sp = PTR2UINT(p->kstack+KSTACK);
+	p->kpfun = func;
+	p->kparg = arg;
 }
 
+/*
+ * called in syscallfmt.c, sysfile.c, sysproc.c.
+ * as on the other ports, vlongs need only be 4-byte aligned.
+ */
 void
-forkchild(Proc *p, Ureg *ureg)
+validalign(uintptr addr, unsigned align)
 {
-	if(0)print("forkchild parent %lud kid %lud p %p ureg %p stack ? %p\n", up->pid, p->pid, p, ureg, (uintptr) p - TRAPFRAMESIZE);
-	Ureg *cureg;
-	if(0)print("ureg sp %p pc %p\n", ureg->sp, ureg->pc);
-	p->sched.pc = (uintptr) forkret;
-	p->sched.sp = (uintptr) p - sizeof(Ureg);
-	if(0)print("forkchild: sp %p pc %p\n", p->sched.sp, p->sched.pc);
-
-	cureg = (Ureg*) (p->sched.sp);
-	if(0)print("fork child: ureg -> r1 is %p\n", ureg->r1);
-	if(0)print("forkchild: memmove(%p, %p, %d)\n", cureg, ureg, sizeof(Ureg)-16);
-	memmove(cureg, ureg, sizeof(Ureg));
-	if(0)print("forkchild: sp %p pc %p\n", p->sched.sp, p->sched.pc);
-	cureg->arg = 0;
-	/*
-	 * the parent's ureg->pc still points at the ECALL (advancepc runs
-	 * after dosyscall returns); step over it or the child re-executes
-	 * the syscall.  ECALL has no compressed form, so it is 4 bytes.
-	 */
-	cureg->pc += 4;
+	if(align == sizeof(vlong))
+		align = sizeof(long);
+	if((align != 0 && !(align & (align-1))) && !(addr & (align-1)))
+		return;
+	postnote(up, 1, "sys: odd address", NDebug);
+	error(Ebadarg);
 }
 
-uintptr
-execregs(uintptr entry, int argc, char *argv[], Tos *tos)
-{
-	uintptr *sp = (void*)argv;
-	Ureg *ureg;
-
-	if (TrapSys)print("execregs %p %d %p %p\n", entry, argc, argv, tos);
-	*--sp = argc;
-
-	ureg = up->dbgreg;
-	ureg->sp = (uintptr)sp;
-	ureg->pc = entry;
-	ureg->arg = argc;
-	return (uintptr)tos;
-}
-
-static void panictrap(Ureg *)
-{
-	sbiputc('&');
-	print("trap");
-	panic("trap");
-}
-
-// Geoff
 typedef struct {
 	/* exception or interrupt code from [ms]cause, without Rv64intr bit */
 	uchar	cause;
@@ -262,8 +168,6 @@ trapdbg(Ureg *ureg, Cause *cp, int entry)
 	type = cp->type;
 	USED(type);
 	/* if we print uart interrupts, we'll recurse forever. */
-//	if (type == Globalintr)
-//		return;
 /*
 	iprint("|%c%c%c ", ureg->curmode == Mppsuper? 'S': 'M', entry? '>': '<',
 		type == Exception? 'E': 'I');
@@ -312,45 +216,7 @@ advancepc(Ureg *ureg)
 static void
 trapsyscall(Ureg *ureg, Cause *)
 {
-	uint scallnr;
-	uintptr pc;
-
-	int i;
-	/* This spew is very handy, it helped find the memory poising
-	 * issue, by comparing qemu output to bpi-f3 output. */
-if (TrapSys)	{
-	for(i = 0; i < 32; i++) print("%d:0x%llx\n", i, ureg->regs[i]);
-	print("sp is %p\n", ureg->sp);
-	for(i = 0; i < MAXSYSARG; i++)
-		print("%d:%p\n", i, ((uintptr *)ureg->sp)[i+1]);
-}
-//	m->turnedfpoff = 0;
-
-	/* syscall may change ureg->pc, so save a copy. */
-	pc = ureg->pc;
-/*	if (getsp() % sizeof(vlong) != 0)
-		print("trapsyscall: odd sp %#p at %#p\n", getsp(), pc);*/
-	scallnr = ureg->arg;
-	/* on riscv64, ureg->ret is ureg->arg, so can't zero ureg->ret here. */
-	/* Last syscall argument is location of return value in frame. */
-	if (TrapSys) print("%p:dosyscall(%d, %p, %p val %p\n", pc, scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->arg, ureg->arg);
-	dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->arg);
-
-	/*
-	 * a changed pc could be the result of receiving a note, but also
-	 * successful exec does not return here, but at the entry
-	 * point of the new program.
-	 */
-	if (pc == ureg->pc)
-		advancepc(ureg);
-	else if (Trapdebug && scallnr != EXEC)
-		iprint("syscall %d changed return ureg->pc %#p (old pc %#p)\n",
-			scallnr, ureg->pc, pc);
-	if (TrapSys) print("SYSCALL return: up->pid %lud scallnr %d\n\n", up->pid, scallnr);
-	if(up->procctl || up->nnote)
-		donotify(ureg);
-	kexit(ureg);
-
+	syscall(ureg);
 }
 
 static void
@@ -418,7 +284,6 @@ whatcause(Cause *cp, Ureg *ureg)
 	    ++trapcnt[cp->vno] % (1024*1024) == 0)	/* tweak to taste */
 		iprint("trap: vector %d trapping lots\n", cp->vno);
 #endif
-	if (TrapSpew) print("type %d\n", type);
 	return type;
 }
 
@@ -489,7 +354,6 @@ trapillinst(Ureg *ureg, Cause *cp)
 	ulong inst;
 	uintptr pc;
 
-	if (TrapSpew)print("trapillinst\n");
 	/* if non-zero, ureg->tval will be the trapping instruction */
 	pc = ureg->pc;
 	if (pc & 1) {
@@ -534,7 +398,6 @@ trapillinst(Ureg *ureg, Cause *cp)
 			rd = (inst>>7) & MASK(5);
 			if (rd)
 				ureg->regs[rd] = 0;
-		//	m->probebad = 1;
 			skip = 1;
 		}
 		break;
@@ -593,38 +456,21 @@ faultriscv64(Ureg* ureg, Cause *)
 {
 	uintptr addr;
 	int read, insyscall;
-	extern int block;
 
-	/*
-	 * There must be a user context.
-	 * If not, the usual problem is causing a fault during
-	 * initialisation before the system is fully up.
-	 */
 	addr = ureg->tval;
-	// It handles this just fine. false alarm.
-	// I thought the problem was the page fault it was taking when parent
-	// resumed after sysrfork(). Nope. 
-	if (0)	if (iskern(ureg->pc))
-		panic("fault in kernel mode (pc %p)\n", ureg->pc);
-	if (0)print("faultriscv64 pid %lud\n", up->pid);
-	if (0)if (up->pid == 5) soft();
 	if(up == nil)
-		panic("fault %#lld with up == nil; pc %#p addr %#p",
+		panic("fault %#llud with up == nil; pc %#p addr %#p",
 			ureg->cause, ureg->pc, addr);
-	if (addr == 0 && up->nlocks)		/* debugging for gs */
-		panic("fault %#lld pc %#p addr %#p nlocks %d",
-			ureg->cause, ureg->pc, addr, up->nlocks);
+	if(addr == 0 && up->nlocks.ref)
+		panic("fault %#llud pc %#p addr %#p nlocks %ld",
+			ureg->cause, ureg->pc, addr, up->nlocks.ref);
 
-	//vecacct(vctl[cp->vno]);
 	insyscall = up->insyscall;
 	up->insyscall = 1;
 	read = ureg->cause != Storepage;  /* exception, so Rv64intr must be 0 */
 	/* page fault on a kernel address is never okay. */
-	if (0)while (block != 1024);
-	if (TrapSpew)print("fault %p read pc %p %d < uzero(%p) %d\n", addr, ureg->pc ,read, UZERO, addr < UZERO);
-	if(addr < UZERO || fault(addr, ureg->pc, read) < 0)
+	if(addr < UZERO || fault(addr, read) < 0)
 		badpagefault(ureg, addr, read, insyscall);
-	if (0) if (up->pid == 5) soft();
 	up->insyscall = insyscall;
 }
 
@@ -678,37 +524,17 @@ trapriscv64(Ureg *ureg, Cause *cp)
 {
 	uint cause;
 	Exchandler handler;
-	if (TrapSpew) print("trapriscv64 ur %p cp %p\n", ureg, cp);
-#ifdef xxx
-	if (cp->user)
-		m->turnedfpoff = 0;
-	else if (m->probing) {
-		m->probebad = 1;
-		m->probing = 0;
-		coherence();
-		if (0)
-			iprint("probe trapped\n");
-		/* have to advance PC on risc-v to skip faulting instruction. */
-		advancepc(ureg);
-		return 0;			/* not a clock interrupt */
-	}
-#endif
-if (0)sbiputc('.');
+
 	cause = cp->cause;
 	if (cause >= nelem(exchandlers))
 		panic("trapriscv64: cause %d out of range", cause);
 	handler = exchandlers[cause];
-	if (TrapSpew) print("trapriscv64: handler %p\n", handler);
-	if (handler) {
-		(*handler)(ureg, cp);
-		if (Trapdebug)
-			faultstuck(ureg);
-		if (TrapSpew) print("trapriscv64: done handler\n");
-		return 0;			/* not a clock interrupt */
-	}
-	if (TrapSpew) print("trapriscv64: no handler\n");
-	/* could be a local intr */
-	panic("unknown exception, cause %d from_user %d", cause, cp->user);
+	if (handler == nil)
+		panic("unknown exception, cause %d from_user %d", cause, cp->user);
+	(*handler)(ureg, cp);
+	if (Trapdebug)
+		faultstuck(ureg);
+	return 0;			/* not a clock interrupt */
 }
 
 static int
@@ -716,27 +542,21 @@ traplocalintr(Ureg *ureg, Cause *cp)
 {
 	int clockintr;
 	uint cause;
-if (0)sbiputc('-');
 
-	if (TrapSpew) print("traplocalintr ureg %p cause %ud\n", ureg, cause);
+	clockintr = 0;
 	m->intr++;			/* okay here; only tmr and sw intrs */
 	m->perf.intrts = perfticks();
 	cause = cp->cause;
 	if (cause < Local0intr)
 		cause &= ~Msdiff;	/* map mach to super codes */
-	if (TrapSpew) print("case %x\n", cause);
 	switch (cause) {
 	case Suptmrintr:
-		if (TrapSpew) print("clockintr\n");
 		clockoff();
-		if (TrapSpew) print("clockoff\n");
 		if (++m->clockintrdepth > 1 && m->clockintrsok) {
 			/* nested clock interrupt; probably shutting down */
 			m->clockintrsok = 0;
-			// iprint("cpu%d: nested clock interrupt\n", m->machno);
 		}
 		timerintr(ureg, 0);
-		if (TrapSpew) print("timerintr DONE\n");
 		--m->clockintrdepth;
 		clockenable();
 		clockintr = 1;
@@ -759,7 +579,6 @@ if (0)sbiputc('-');
 		 * NB: intr is not reached here, we short-circuited the cause
 		 * to Globalintr in whatcause.
 		 */
-		// clockintr = intr(ureg, cp);
 		panic("traplocalintr: handed an external interrupt");
 	case 0:					/* probably NMI */
 		if(m->machno == 0)
@@ -787,12 +606,9 @@ if (0)sbiputc('-');
 	 */
 	if ((vlong)(rdstimecmp() - rdtime()) <= 0)
 		wrstimecmp(rdtime() + sys->clintsperhz);
-	if (TrapSpew) print("IMPLEMENT vecacct(vctl[cp->vno]);\n");
-	if (TrapSpew) print("IMPLEMENENT intrtime(m, cp->vno);\n");
-	if (!soc.plic)
-		if (TrapSpew) print("implement poll(ureg, nil);		/* frequent polling */\n");
 	return clockintr;
 }
+
 /*
  * call for global interrupts (those coming from the plic).
  * these are never clock interrupts, so returns 0 (not a clockintr).
@@ -824,66 +640,39 @@ trap(Ureg* ureg)
 	uint type;
 	Cause why;
 	Traphandler handler;
-	if (TrapOhShit) print("trap ureg %p pc %p up %p up->pid %lud\n", ureg, up, ureg->pc, up ? up->pid : -1);
-if (0)sbiputc('T');
-	if (Trapdebug) {
-		if (ureg == nil)
-			panic("trap with nil ureg");
-	}
-
-	/*
-	 * if we trapped from supervisor mode into machine mode, revert to
-	 * phys device addresses, assuming that we are about to reboot.
-	 * this is only possible if we link with mtrap.$O (e.g., tinyemu).
-	if (ureg->curmode == Mppmach && (ureg->status & Mpp) == Mppsuper)
-		usephysdevaddrs();
-*/
 
 	type = whatcause(&why, ureg);
-	if (TrapSpew) print("trapentry: type %d\n", type);
 	if (Trapdebug)
 		trapdbg(ureg, &why, 1);
 
-	/* short-cut for syscalls */
-	if (ureg->cause == Envcalluser)	/* Rv64intr is off for exceptions */
-		trapsyscall(ureg, nil);
-		/* syscall() did the whole job; we're done */
-	else {
-		if (type >= nelem(traphandlers))
-			panic("trap: trap type %d too large", type);
-		handler = traphandlers[type];
-		if (TrapSpew) print("handler is %p\n", handler);
-		if (handler == nil)
-			panic("trap: trap type %d has no handler", type);
-		clockintr = (*handler)(ureg, &why);
-		if (TrapSpew) print("back from handler\n");
-		splhi();		/* minimise harm if handler went low */
-		if (up)
-			fpsts2ureg(ureg); /* propagate Fsst changes back to user mode */
-
-		/*
-		 * delaysched set (because we held a lock or because our
-		 * quantum ended)?
-		 */
-		if(up && up->delaysched && clockintr && m->clockintrsok) {
-			sched();
-			splhi();
-		}
-		if(why.user) {
-			if(up->procctl || up->nnote)
-				donotify(ureg);
-			/*
-			 * kexit() bills time to whatever process was running,
-			 * so don't call it here.
-			 */
-		}
+	/* short-cut for syscalls; syscall() does the whole job */
+	if (ureg->cause == Envcalluser) {	/* Rv64intr is off for exceptions */
+		syscall(ureg);
+		return;
 	}
-	if (0) if (up->pid == 5) {print("soft at end of trap\n"); soft();}
-	if (0)if (Trapdebug)
-		trapdbg(ureg, &why, 0);
-	if (TrapSpew) print("all done trap(), ur is %p, pc %p\n", ureg, ureg->pc);
-	if (0) print("time %p cmp %p, SIP %llud\n", rdtime(), rdstimecmp(), getsip());
-soft();
+
+	if (type >= nelem(traphandlers))
+		panic("trap: trap type %d too large", type);
+	handler = traphandlers[type];
+	if (handler == nil)
+		panic("trap: trap type %d has no handler", type);
+	clockintr = (*handler)(ureg, &why);
+	splhi();		/* minimise harm if handler went low */
+
+	/*
+	 * delaysched set (because we held a lock or because our
+	 * quantum ended)?
+	 */
+	if(up && up->delaysched && clockintr && m->clockintrsok) {
+		sched();
+		splhi();
+	}
+	if(why.user) {
+		if(up->procctl || up->nnote)
+			notify(ureg);
+		/* the fpu state user mode returns with */
+		fpsts2ureg(ureg);
+	}
 }
 
 /*
@@ -922,77 +711,12 @@ dumpregs(Ureg* ureg)
 	 * Processor CSRs.
 	 */
 	iprint("satp\t%#16.16llux\n", (uvlong)rsatp());
-
-//	archdumpregs();
 }
 
-
-Ureg*
-notify(Ureg *ureg, char *msg)
-{
-	Ureg *nureg;
-	uintptr sp;
-
-	sp = ureg->sp;
-	sp -= 256;	/* debugging: preserve context causing problem */
-	sp -= sizeof(Ureg);
-	sp = STACKALIGN(sp);
-
-	if(!okaddr(sp-ERRMAX-4*BY2WD, sizeof(Ureg)+ERRMAX+4*BY2WD, 1)
-	|| ((uintptr) up->notify & 3) != 0
-	|| (sp & 7) != 0)
-		return nil;
-
-	nureg = (Ureg*)sp;
-	memmove(nureg, ureg, sizeof(Ureg));
-	sp -= BY2WD+ERRMAX;
-	memmove((char*)sp, msg, ERRMAX);
-	sp -= 3*BY2WD;
-	*(uintptr*)(sp+2*BY2WD) = sp+3*BY2WD;
-	*(uintptr*)(sp+1*BY2WD) = (uintptr)nureg;
-	ureg->arg = (uintptr)nureg;
-	ureg->sp = sp;
-	ureg->pc = (uintptr)up->notify;
-	ureg->link = 0;
-
-	return nureg;
-}
-
-int
-noted(Ureg *ureg, Ureg *nureg, int arg0)
-{
-	uintptr oureg, sp;
-
-	oureg = (uintptr) nureg;
-	if((oureg & 7) != 0)
-		return -1;
-
-	setregisters(ureg, (char*)ureg, (char*)nureg, sizeof(Ureg));
-
-	switch(arg0){
-	case NCONT: case NRSTR:
-		if(!okaddr(ureg->pc, BY2WD, 0)
-		|| !okaddr(ureg->sp, BY2WD, 0)
-		|| (ureg->pc & 1) != 0 || (ureg->sp & 7) != 0)
-			return -1;
-		break;
-	case NSAVE:
-		sp = oureg - 4 * BY2WD - ERRMAX;
-		if(!okaddr(ureg->pc, BY2WD, 0)
-		|| !okaddr(sp, 4 * BY2WD, 1)
-		|| (nureg->pc & 1) != 0 || (sp & 7) != 0)
-			return -1;
-		ureg->sp = sp;
-		ureg->arg = (uintptr) oureg;
-		((uintptr *) sp)[1] = oureg;
-		((uintptr *) sp)[0] = 0;
-		break;
-	}
-	return 0;
-}
 
 /* clear a software ipi delivered to this cpu (see idlewake/ipitohart) */
-void clearipi(void)
+void
+clearipi(void)
 {
 	if(nosbi || soc.ipiclint)
 		m->clint->msip[m->hartid] = 0;
@@ -1002,18 +726,10 @@ void clearipi(void)
 	clrsipbit(Ssie);		/* deassert pending super sw intr */
 }
 
-/* base plic context for mach (M mode). dependent upon system configuration */
-/* TODO: do we want this? */
+/* base plic context for mach (M mode); all harts are equal on qemu virt */
 uint
 mach2context(Mach *)
 {
-	int ctxtoff;		/* context relative to M of first real hart */
-
-//	if (mach->machno < soc.hobbled)		/* hobbled mgmt hart? */
-//		return mach->machno;
-//	ctxtoff = sys->nprivmodes * (mach->machno - soc.hobbled);
-//	return (soc.context0? soc.context0: soc.hobbled) + ctxtoff;
-	ctxtoff = 0;
-	return ctxtoff;
+	return 0;
 }
 

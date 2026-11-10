@@ -5,9 +5,9 @@
 #include "fns.h"
 #include "io.h"
 
-#include "../port/pci.h"
+#include "pci.h"
 #include "../port/error.h"
-#include "../port/virtio10.h"
+#include "virtio10.h"
 
 u8int
 vin8(Vio *r, int p)

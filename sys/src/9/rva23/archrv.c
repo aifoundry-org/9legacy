@@ -7,7 +7,6 @@
 #include "dat.h"
 #include "fns.h"
 #include "riscv64.h"
-#include "cpucap.h"
 
 #define EXT(let) (1LL << ((let) - 'A'))
 #define EXTIMA	(EXT('I') | EXT('M') | EXT('A'))
@@ -94,8 +93,6 @@ static Hart harts[HARTMAX];
 Cpu cpus[] = {
 	{ "spacemit x60", 0x710, 0x8000000058000001ull, },
 	{ "spacemit",	0x710,	0, },
-//	{ "xuantie",	0x401,	0, },
-//	{ "xuantie",	Vthead,	0, },				/* bugs'r'us */
 	{ "tinyemu",	0xbe11a5d, 0x564, },
 	{ "zero vendor & arch (emulation?)", 0, 0, },
 	0
@@ -174,7 +171,6 @@ cachealloc(uintptr size)		/* unused */
 static uint
 umod(uint a, uint b)			/* unused */
 {
-#define		ISPOW2(i) (((i) & ((i) - 1)) == 0) /* see Hacker's Delight */
 	if (ISPOW2(b))
 		return a & (b - 1);
 	return a % b;
@@ -494,6 +490,9 @@ calibrate(void)
 			clintpertsc = 1;
 	}
 	tscperclintglob = tscperclint;
+	if (mtime2 > 0)
+		m->cyclefreq = (tsc2 * timebase) / mtime2;	/* for Tos */
+	m->cpumhz = m->cyclefreq / 1000000;
 	if (1 || soc.newmach) {
 		print("%,llud clint ticks is %,llud rdtsc cycs, or ",
 			mtime2, tsc2);
@@ -531,8 +530,6 @@ void
 clockoff(void)
 {
 	clrstie();
-	/* ~0ull makes sense, but looks negative on some machines */
-	// fuck that.	setclinttmr(VMASK(63));
 }
 
 /*
@@ -916,7 +913,6 @@ hsmstartall(void)
 	int hart, state;
 	Hart *hartst;
 
-	// hartstatesinit();
 	getallhartstates();
 
 	/*
@@ -1007,6 +1003,7 @@ cpustart(int hartid)
 	}
 	m->machno = hartid;
 	m->hartid = hartid;
+	m->cyclefreq = MACHP(0)->cyclefreq;
 	/* prefer the stable Mach copy over the local param past here */
 	machinit();			/* stvec + active.machs[machno] */
 	mmu1init();			/* our own mmutop; loads satp */
@@ -1135,7 +1132,6 @@ cpuidprint(void)
 
 	if (soc.havecbo)
 		print("_Zicbom");
-//		sys->cpucap |= Capcbo;
 	if (soc.nodevamo)
 		print(" no_dev_amo");		/* jupiter or other cheapo */
 	if (haveinstr(sync_is, 0))		/* xuantie instr. */

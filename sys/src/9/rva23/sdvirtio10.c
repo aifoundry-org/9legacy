@@ -19,12 +19,12 @@
 #include "dat.h"
 #include "fns.h"
 #include "io.h"
-#include "../port/pci.h"
+#include "pci.h"
 #include "ureg.h"
 #include "../port/error.h"
 
 #include "../port/sd.h"
-#include "../port/virtio10.h"
+#include "virtio10.h"
 
 typedef struct Vqueue Vqueue;
 typedef struct Vdev Vdev;

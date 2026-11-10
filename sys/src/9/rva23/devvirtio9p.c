@@ -23,9 +23,9 @@
 #include "dat.h"
 #include "fns.h"
 #include "io.h"
-#include "../port/pci.h"
+#include "pci.h"
 #include "../port/error.h"
-#include "../port/virtio10.h"
+#include "virtio10.h"
 
 typedef struct Vqueue Vqueue;
 typedef struct Slot Slot;
@@ -50,7 +50,7 @@ enum {
 
 	Fmounttag	= 1,		/* feat[0]: the config has a mount tag */
 
-	Msize		= IOHDRSZ+32768,	/* devmnt's MAXRPC */
+	Msize		= IOHDRSZ+16*1024,	/* devmnt's MAXRPC */
 	Slack		= 64,		/* for the T-messages' growth */
 	Maxslot		= 16,		/* RPCs in flight */
 	Fidhash		= 64,

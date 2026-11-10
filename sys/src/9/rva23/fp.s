@@ -74,10 +74,11 @@ TEXT fpoff(SB), 1, $-4
 noop:
 	RET
 
-TEXT isfpon(SB), 1, $-4
+/* return the FS field of SSTATUS, unshifted */
+TEXT fpstatus(SB), 1, $-4
 	MOV	CSR(SSTATUS), R9
-	MOV	$Fsst, R11
-	AND	R9, R11
+	MOV	$Fsst, R(ARG)
+	AND	R9, R(ARG)
 	RET
 
 /* fpu is assumed at entry to be off, thus clean */

@@ -1,77 +1,32 @@
+# rva23 - riscv64 qemu virt cpu server, root over virtio-9p
 dev
-	arch
 	root
 	cons
-	swap
+	arch
 	env
 	pipe
 	proc
 	mnt
 	srv
-	shr
 	dup
+	ssl
 	tls
 	cap
 	fs
-	dtracy
-	ether	netif
-#	bridge	log
-	ip	arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
 	uart
-	draw	screen swcursor
-	mouse	screen swcursor
-	usb
-	i2c
-	gpiok3
-#	rtc
-	pci	pci
-	sd
 	virtio9p	pci virtio10mem
 
-	dtracy
-
 link
-	usbxhcipci	pci usbxhci
-	usbxhcibpif3	usbxhci
-	usbxhcipicoitx	usbxhci
-	usbxhcicom260	usbxhci
-	sdspacemit
-	i2ck3
-	ethervirtio10 virtio10mem pci
-#	ethersink
-	ethermedium
-	loopbackmedium
-	ethersmte
-	etherdwqe
-#	netdevmedium
 	pciqemu		pci
 
-ip
-	tcp
-	udp
-	il
-	ipifc
-	icmp
-	icmp6
-	igmp
-	ipmux
 misc
-#	gic
 	uarti8250
-	sdvirtio10	pci sdscsi
-	sdmmc		sdspacemit
-	sdufs		sdscsi
-
-	dtracysys
-	dtracytimer
-	dtracydev
-
 
 port
-	int cpuserver = 0;
+	int cpuserver = 1;
+
+boot cpu
+	virtio9p
+
 bootdir
-	/$objtype/bin/paqfs
-	/$objtype/bin/rc
-	/$objtype/bin/auth/factotum
-	bootfs.paq
-	boot
+	boot$CONF.out boot

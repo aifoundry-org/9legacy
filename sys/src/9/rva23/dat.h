@@ -22,11 +22,10 @@ enum {
 typedef struct Clint Clint;
 typedef struct Conf	Conf;
 typedef struct Confmem	Confmem;
-typedef struct FPalloc	FPalloc;
 typedef struct FPsave	FPsave;
-typedef struct PFPU	PFPU;
 typedef struct ISAConf	ISAConf;
 typedef struct Label	Label;
+typedef struct Lock	Lock;
 typedef struct Memcache	Memcache;
 typedef struct MMMU	MMMU;
 typedef struct Mach	Mach;
@@ -55,10 +54,7 @@ typedef struct Mallocs Mallocs;
 /*
  *  parameters for sysproc.c
  */
-// This does not seem to work.
-//#define AOUT_MAGIC	(Y_MAGIC)
-// as a friend from BL once said: give it a fucking rest
-#define AOUT_MAGIC (0x8e17)
+#define AOUT_MAGIC	(B_MAGIC)
 
 struct Label
 {
@@ -66,49 +62,33 @@ struct Label
 	uintptr	pc;
 };
 
+struct Lock
+{
+	ulong	key;
+	u32int	sr;
+	uintptr	pc;
+	Proc*	p;
+	Mach*	m;
+	int	isilock;
+};
+
+/*
+ * the kernel itself never uses floating point.
+ */
 struct FPsave
 {
-	uvlong	regs[32][2];
-
+	uvlong	regs[32];
 	ulong	fcsr;
 };
 
-struct FPalloc
-{
-	FPsave;
-
-	FPalloc	*link;	/* when context nests */
-};
-
-#define KFPSTATE
-
-struct PFPU
-{
-	int	fpstate;
-	int	kfpstate;
-	FPalloc	*fpsave;
-	FPalloc	*kfpsave;
-};
-
+/*
+ * Proc.fpstate
+ */
 enum
 {
-	/* these names are known to port/. They're not quite right
-	 * for RISC-V but we have to use them. */
-	/* In this state, FP use will cause a trap. */
-	FPinit,
-	/* In this state, the FP is on but has not been used */
-	FPidle,
-	/* In this state, the FP is on but "clean". It is not completely
-	 * clear why this state was needed, but it is in the spec. */
-	FPclean,
-	/* In this state, the FP has been changed in some way and
-	 * must be saved off before it can be used by kernel, note handler,
-	 * or other process. */
-	FPdirty,
-	FPinactive = FPidle,
-
-	/* bits or'd with the state */
-	FPnotify = 0x100,
+	FPinit,		/* fpu off; first use traps and initialises it */
+	FPactive,	/* fpu on, registers belong to up */
+	FPinactive,	/* fpu off, registers saved in up->fpsave */
 };
 
 struct Confmem
@@ -134,6 +114,8 @@ struct Conf
 	ulong	nswap;		/* number of swap pages */
 	int	nswppo;		/* max # of pageouts per segment pass */
 	int	monitor;	/* flag */
+	ulong	hz;		/* processor cycle freq */
+	ulong	mhz;
 };
 
 /*
@@ -176,7 +158,9 @@ struct PMMU
 	};
 	Page	*mmutail[PTLEVELS];
 	int	asid;
-	uintptr	tpidr;
+	Mach	*mmumach;	/* where asid was last used */
+	void	(*kpfun)(void*);	/* kproc entry */
+	void	*kparg;
 };
 
 #include "../port/portdat.h"
@@ -215,11 +199,29 @@ struct Mach
 	/* end of offsets known to asm */
 
 	MMMU;
+	int	flushmmu;		/* flush current proc mmu state */
 
-	PMach;
+	ulong	ticks;			/* of the clock since boot time */
+	Label	sched;			/* scheduler wakeup */
+	Lock	alarmlock;		/* access to alarm list */
+	void*	alarm;			/* alarms bound to this clock */
 
-	int	fpstate;
-	FPalloc	*fpsave;
+	Proc*	readied;		/* for runproc */
+	ulong	schedticks;		/* next forced context switch */
+
+	/* stats */
+	int	tlbfault;
+	int	tlbpurge;
+	int	pfault;
+	int	cs;
+	int	syscall;
+	int	load;
+	int	intr;
+	ulong	spuriousintr;
+	int	lastintr;
+	int	ilockdepth;
+	Perf	perf;			/* performance counters */
+	uvlong	cyclefreq;		/* frequency of user readable cycle counter */
 
 	int	cputype;
 	ulong	delayloop;
@@ -240,13 +242,16 @@ struct Mach
 
 struct
 {
-	char	machs[MAXMACH];		/* active CPUs */
+	Lock;
+	uvlong	machs;			/* bitmap of active CPUs */
 	int	exiting;		/* shutdown */
+	int	ispanic;		/* shutdown in response to a panic */
 }active;
 
 #define MACHP(n)	((Mach*)MACHADDR(n))
 
 extern uintptr ktzero, vdram;		/* runtime memory layout; set in relocfixup */
+extern uintptr klimit;
 
 extern register Mach* m;			/* R7 */
 extern register Proc* up;			/* R6 */

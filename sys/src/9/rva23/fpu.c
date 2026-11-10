@@ -1,390 +1,154 @@
+/*
+ * floating point for user processes.  The kernel never uses the
+ * fpu, so its registers belong to up whenever up->fpstate is
+ * FPactive.  A process starts with the fpu off (FPinit); its first
+ * fp instruction traps to mathtrap, which loads the registers.
+ * procsave saves them and turns the fpu off again (FPinactive).
+ *
+ * SSTATUS.FS is restored from the Ureg on the way back to user
+ * mode, so every return to user mode passes through fpsts2ureg.
+ */
 #include "u.h"
 #include "../port/lib.h"
 #include "mem.h"
 #include "dat.h"
 #include "fns.h"
-
 #include "ureg.h"
-#include "../rva23/sysreg.h"
 #include "riscv64.h"
 
-/* from 9k */
-enum {						/* FCSR */
-	I		= FPAINEX,
-	D		= FPAINVAL,		/* Denormalized-Operand */
-	Z		= FPAZDIV,
-	O		= FPAOVFL,		/* Overflow */
-	U		= FPAUNFL,		/* Underflow */
-};
-
-enum {						/* PFPU.state */
-	Hold		= 1<<2,			/* Handling an FPU note */
-	TrapSpew		= 0,
-};
-
-static char *fpstnames[] = {
-	"Init", "Inactive", "Clean", "Dirty",
-};
-
-/* The rules:
- * 9front kernels allow kernel and note handler use of FPU.
- * Exceptions can nest, requiring a stack of saved FPU register values.
- ** This stack is implemented via a linked list.
- * CPU takes a trap on ANY access to FPU.
- ** All setting is done at SPLHI in assembly. No code in this file should touch the FP registers.
- * Registers F28-F31 hold constants.
- * FPU registers should never be used in this file.
- * FPU is enabled by 2 bits in SSTATUS. If those bits are 0, the FPU can be used.
- * SSTATUS in the ureg is a saved copy of SSTATUS
- ** Weirdly, the FPU bits are not cleared to 0 when strap occurs.
- ** Will we need to do this?
- * The FPU status is restored when we leave the kernel to user mode.
- * Or when we leave this trap to go back to kernel.
- */
-
-/* initial contents of high fp regs.  compiler assumes such initialization. */
-/* See: fpconstset: 28, 29, 30, and 31 are set to these values */
+/* registers jc assumes hold 0, 0.5, 1 and 2 (F28-F31); see fp.s */
 double fpzero = 0, fphalf = 0.5, fpone = 1, fptwo = 2;
-/* thank you 9k! */
+static uvlong fpconst[4] = {
+	0,
+	0x3FE0000000000000ULL,
+	0x3FF0000000000000ULL,
+	0x4000000000000000ULL,
+};
 
-/* FPalloc allocates an FPsave structure and sets its link to the passed in FPalloc *.
- * This linked list basically forms a stack. */
-static FPalloc*
-fpalloc(FPalloc *link)
+void
+fpuinit(void)
 {
-	FPalloc *a;
-
-	while((a = mallocalign(sizeof(FPalloc), 16, 0, 0)) == nil){
-		int x = spllo();
-		if(up != nil && !waserror()){
-			resrcwait("no memory for FPalloc");
-			poperror();
-		}
-		splx(x);
-	}
-	memset(a, 0, sizeof(*a));
-	a->link = link;
-	return a;
-}
-
-static void
-fpfree(FPalloc*a)
-{
-	free(a);
-}
-
-static FPsave fpsave0;
-
-static void
-fpsave(FPsave *p)
-{
-	if (TrapSpew)print("fpsave\n");
-	p->fcsr = getfcsr();
-	fpsaveregs(p->regs); // fpsaveregs disables the FPU
-}
-
-static void
-fprestore(FPsave *p)
-{
-	if (TrapSpew)print("fprestore\n");
-	setfcsr(p->fcsr);
-	fploadregs(p->regs); // fploadregs enables the FPU
-}
-
-/* fpinit loads the registers from fpsave0.
- * Critically, the constant registers will be set.
- * This used to load from fpsave0, but that does not
- * have f28-31 set, which in actual use did not end well.
- */
-static void
-fpinit(void)
-{
-	if (TrapSpew)print("fpinit\n");
 	_fpuinit();
+	fpoff();
 }
 
-/* notefpsave saves processor FPU state if the process has been using the FPU. */
-FPsave*
-notefpsave(Proc *p)
+static void
+fpinitregs(FPsave *f)
 {
-	if(p->fpsave == nil)
-		return nil;
-	if(p->fpstate == (FPidle|FPnotify)){
-		p->fpsave = fpalloc(p->fpsave);
-		memmove(p->fpsave, p->fpsave->link, sizeof(FPsave));
-		p->fpstate = FPidle;
-	}
-	return p->fpsave->link;
+	memset(f, 0, sizeof *f);
+	memmove(&f->regs[28], fpconst, sizeof fpconst);
+}
+
+/* save up's live registers; leaves the fpu off */
+void
+fpusave(void)
+{
+	if(up->fpstate != FPactive)
+		return;
+	up->fpsave.fcsr = getfcsr();
+	fpsaveregs(up->fpsave.regs);
+	up->fpstate = FPinactive;
 }
 
 void
-fpuprocsave(Proc *p)
+procsetup(Proc *p)
 {
-	if (TrapSpew)print("fpuprocsave\n");
-	// Process dead? nothing do to.
-	if(p->state == Moribund){
-		FPalloc *a;
+	p->fpstate = FPinit;
+	fpoff();
+}
 
-		if(p->fpstate > FPinit || p->kfpstate > FPinit)
+void
+procsave(Proc *p)
+{
+	if(p->fpstate == FPactive){
+		if(p->state == Moribund){
 			fpoff();
-		p->fpstate = p->kfpstate = FPinit;
-		while((a = p->fpsave) != nil) {
-			p->fpsave = a->link;
-			fpfree(a);
-		}
-		while((a = p->kfpsave) != nil) {
-			p->kfpsave = a->link;
-			fpfree(a);
-		}
-		return;
+			p->fpstate = FPinit;
+		}else
+			fpusave();
 	}
-	// kfpstate is kernel fp state? Kernel using FPU I guess? or ...
-	if(p->kfpstate > FPinit){
-		fpsave(p->kfpsave);
-		p->kfpstate = FPidle;
-		return;
-	}
-
-	/*
-	 * A process in a note handler carries the FPnotify bit; mask it out
-	 * before deciding whether there is anything to save.
-	 */
-	if((p->fpstate & ~FPnotify) == FPinit)
-		return;
-	fpsave(p->fpsave);
-	p->fpstate = FPidle;
+	putasid(p);
 }
 
-/* from here on down, ron is uncertain. */
 void
-fpuprocrestore(Proc*)
-{
-	if (TrapSpew)print("fpuprocrestore\n");
-	/*
-	 * when the scheduler switches,
-	 * we can discard its fp state.
-	 */
-	switch(m->fpstate){
-	case FPclean:
-	case FPdirty:
-	case FPidle:
-		/* wet floor */
-		fpoff();
-		fpfree(m->fpsave);
-		m->fpsave = nil;
-		m->fpstate = FPinit;
-	}
-}
-
-/* placeholder, should we ever need it. */
-void
-fpuprocsetup(Proc *)
+procrestore(Proc*)
 {
 }
 
-/* fork the fpu state from parent to child.
- * If the parent was inactive, then the child will be --
- * they resume at the same PC. Otherwise, save the parent
- * FPU state, such that it can be recreated in the child,
- * such that they both can exit with the same FPU state.
- * We need a test for this. */
+/*
+ * the child of rfork inherits the parent's saved registers;
+ * syscall saved them before the fork.
+ */
 void
-fpuprocfork(Proc *p)
+fpuforkchild(Proc *p, Ureg *cureg)
+{
+	p->fpstate = up->fpstate;
+	if(p->fpstate == FPactive)
+		panic("fpuforkchild: parent fpu active");
+	cureg->status &= ~Fsst;
+}
+
+/* the note handler runs with a copy of the interrupted fp state */
+void
+fpunotify(void)
 {
 	int s;
 
 	s = splhi();
-	switch(up->fpstate & ~FPnotify){
-	case FPclean:
-	case FPdirty:
-		fpsave(up->fpsave);
-		up->fpstate = FPidle;
-		/* wet floor */
-	case FPinactive:
-		/*
-		 * The parent's state is saved in up->fpsave; give the child
-		 * its own copy.  Falling through from FPclean/FPdirty is not
-		 * enough: an already-inactive (FPidle) parent must copy too,
-		 * otherwise the child is left FPidle with a nil fpsave and
-		 * faults in fpsave() the first time it is scheduled out.
-		 */
-		if(p->fpsave == nil)
-			p->fpsave = fpalloc(nil);
-		memmove(p->fpsave, up->fpsave, sizeof(FPsave));
-		p->fpstate = FPinactive;
-		break;
+	fpusave();
+	if(up->fpstate == FPinit){
+		fpinitregs(&up->fpsave);
+		up->fpstate = FPinactive;
 	}
+	up->notefpsave = up->fpsave;
 	splx(s);
 }
 
 void
-fpunotify(Proc *p)
+fpunoted(void)
 {
-	fpuprocsave(p);
-	p->fpstate |= FPnotify;
+	int s;
+
+	s = splhi();
+	if(up->fpstate == FPactive)
+		fpoff();
+	up->fpsave = up->notefpsave;
+	up->fpstate = FPinactive;
+	splx(s);
 }
 
-void
-fpunoted(Proc *p)
-{
-	FPalloc *o;
-
-	if(p->fpstate & FPnotify) {
-		p->fpstate &= ~FPnotify;
-	} else if((o = p->fpsave->link) != nil) {
-		fpfree(p->fpsave);
-		p->fpsave = o;
-		p->fpstate = FPidle;
-	} else {
-		p->fpstate = FPinit;
-	}
-}
-
-/*
- * You get here out of the illegal instruction handler, when FPU is turned off.
- * Your task is to figure out what mode the trap occured in, if the FPU was in use before it was turned
- * off, and how to construct a return from as you exit the trap handler back to kernel, note handler, or
- * process. During trap entry, FPU is turned off, but its state as of the trap is preserved.
- */
+/* user fp instruction with the fpu off: load up's registers */
 void
 mathtrap(Ureg *ureg)
 {
-	if (TrapSpew)print("mathtrap %p\n", ureg->pc);
-	/* we were not in user mode. So, the kernel decided to use the FPU,
-	 * and if there is state to be preserved, here is where we do it.
-	 * We will set up the FPU here and just return. */
-
-	/* no user stuff going on. Ron is unsure about this code. */
-	if(!userureg(ureg)){
-		if (TrapSpew)print("kernel mode\n");
-		/* there was no process active. So we need only worry about the kernel FP state. */
-		if(up == nil){
-			/* This step pushes a new fpsave onto the stack. */
-			switch(m->fpstate){
-			/* It was not used. Set up an FPsave and it will be popped on the way out of the trap handler */
-			case FPinit:
-				m->fpsave = fpalloc(m->fpsave);
-				m->fpstate = FPidle;
-				fpinit();
-				break;
-			case FPidle:
-			/* do we need the other cases here? */
-				fprestore(m->fpsave);
-				m->fpstate = FPidle;
-				break;
-			default:
-				panic("floating point error in irq for FP state %d", m->fpstate);
-			}
-			return;
-		}
-		if (TrapSpew)print("fpstate %d\n", up->fpstate);
-		/* mask FPnotify: a process in a note handler that never used
-		 * the FPU is FPinit|FPnotify with fpsave nil; without the mask
-		 * we would fpsave(nil) and fault on the fcsr store at 0x200. */
-		if((up->fpstate & ~FPnotify) > FPclean){
-			if (TrapSpew)print("fp dirty. save it and mark it on\n");
-			fpsave(up->fpsave);
-			up->fpstate = FPidle;
-		}
-
-		switch(up->kfpstate){
-		case FPinit:
-			up->kfpsave = fpalloc(up->kfpsave);
-			up->kfpstate = FPidle;
-			fpinit();
-			break;
-		case FPidle:
-			fprestore(up->kfpsave);
-			up->kfpstate = FPidle;
-			break;
-		default:
-			panic("floating point error in trap");
-		}
-		return;
-	}
-
-	if (TrapSpew)print("user trap: up -> fpstate %d\n", up->fpstate);
+	if(up == nil || !userureg(ureg))
+		panic("fp instruction in kernel at %#p", ureg->pc);
 	switch(up->fpstate){
-	case FPinit|FPnotify:
-		/* wet floor */
 	case FPinit:
-		if (TrapSpew)print("init: turn it on\n");
-		if(up->fpsave == nil)
-			up->fpsave = fpalloc(nil);
-		up->fpstate = FPidle;
-		fpinit();
+		fpinitregs(&up->fpsave);
+		/* fall through */
+	case FPinactive:
+		fploadregs(up->fpsave.regs);
+		setfcsr(up->fpsave.fcsr);
+		up->fpstate = FPactive;
 		break;
-	case FPidle|FPnotify:
-		if (TrapSpew)print("idle | notify\n");
-		spllo();
-		qlock(&up->debug);
-		notefpsave(up);
-		qunlock(&up->debug);
-		splhi();
-		/* wet floor */
-	case FPidle:
-		if (TrapSpew)print("idle\n");
-		fprestore(up->fpsave);
-		up->fpstate = FPidle;
-		break;
-	/* this seems the wrong thing, but I don't know what I'm doing. */
-	case FPclean:
-	case FPdirty:
-		if (TrapSpew)print("clean | dirty\n");
-		postnote(up, 1, "sys: floating point error", NDebug);
+	case FPactive:
+		postnote(up, 1, "sys: trap: illegal fp instruction", NDebug);
 		break;
 	}
-	if (TrapSpew)print("isfpon: %s\n", up->dbgreg->status & Fsst ? "yes" : "no");
 }
 
+/* set the fpu state user mode will return with */
 void
-fpsts2ureg(Ureg*ureg)
+fpsts2ureg(Ureg *ureg)
 {
-		ureg->status &= ~Fsst;
-		ureg->status |= up->fpstate<<Fsshft;
+	ureg->status &= ~Fsst;
+	if(up->fpstate == FPactive)
+		ureg->status |= fpstatus();
 }
 
-void
-fpukexit(Ureg*ureg, FPsave*)
+long
+clrfpintr(void)
 {
-	FPalloc *a;
-	if (TrapSpew)print("fpukexit\n");
-
-	/* if there is no process, just turn the FPU off. */
-	if(up == nil){
-		/* if it was used by the kernel, save state */
-		switch(m->fpstate){
-		case FPclean:
-		case FPdirty:
-		case FPidle:
-			/* wet floor */
-			fpoff();
-			a = m->fpsave;
-			m->fpsave = a->link;
-			fpfree(a);
-		}
-		m->fpstate = m->fpsave != nil? FPidle: FPinit;
-		return;
-	}
-
-	/* this is a very conservative decision. At the same time, we're turning it on,
-	 * so it is inactive (but will be restored). */
-	if(up->fpstate > FPinit){
-		if(userureg(ureg)){
-			up->fpstate = FPidle;
-		}
-		return;
-	}
-
-	switch(up->kfpstate){
-		case FPclean:
-		case FPdirty:
-		fpoff();
-		/* wet floor */
-	case FPidle:
-		a = up->kfpsave;
-		up->kfpsave = a->link;
-		fpfree(a);
-	}
-	up->kfpstate = up->kfpsave != nil? FPidle: FPinit;
+	return 0;
 }

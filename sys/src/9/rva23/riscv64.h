@@ -3,7 +3,7 @@
  *
  * mkenum turns enums into defines for the assemblers in riscv64l.h
  */
-#include <atom.h>
+#include "atom.h"
 
 #define SYSTEM		0x73		/* op code */
 #define ECALLINST	SYSTEM
@@ -16,7 +16,7 @@
 #define MACH	7			/* m-> */
 #define ARG	8
 
-#define UREGSIZE (XLEN*(32+6))	/* room for pc, regs, csrs, mode, scratch */
+#define UREGSIZE (XLEN*(32+5))	/* room for pc, regs, csrs, mode */
 
 /*
  * flag bit for sys->secstall, sys->rebooting: stall secondary cpus at

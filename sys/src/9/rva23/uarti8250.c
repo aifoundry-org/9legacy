@@ -14,6 +14,7 @@
 #include "dat.h"
 #include "fns.h"
 #include "io.h"
+#include "../port/error.h"
 
 enum {					/* registers (word index when stride == 4) */
 	Rbr		= 0,		/* Receiver Buffer (RO) */
@@ -188,18 +189,22 @@ csr8o(Ctlr *c, int r, int v)
 		*(volatile uchar*)UREG(c, r) = v;
 }
 
-static char*
-i8250status(Uart* uart, char *p, char *e)
+static long
+i8250status(Uart* uart, void* buf, long n, long offset)
 {
+	char *p;
 	Ctlr *ctlr;
 	uchar ier, lcr, mcr, msr;
 
+	p = malloc(READSTR);
+	if(p == nil)
+		error(Enomem);
 	ctlr = uart->regs;
 	mcr = ctlr->sticky[Mcr];
 	msr = ctlr->io ? csr8r(ctlr, Msr) : 0;
 	ier = ctlr->sticky[Ier];
 	lcr = ctlr->sticky[Lcr];
-	return seprint(p, e,
+	snprint(p, READSTR,
 		"b%d c%d d%d e%d l%d m%d p%c r%d s%d i%d\n"
 		"dev(%d) type(%d) framing(%d) overruns(%d) "
 		"berr(%d) serr(%d)%s%s%s%s\n",
@@ -226,6 +231,10 @@ i8250status(Uart* uart, char *p, char *e)
 		(msr & Dcd) ? " dcd": "",
 		(msr & Ri) ? " ring": ""
 	);
+	n = readstr(offset, buf, n, p);
+	free(p);
+
+	return n;
 }
 
 static void

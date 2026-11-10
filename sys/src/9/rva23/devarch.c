@@ -118,6 +118,7 @@ archread(Chan *c, void *a, long n, vlong offset)
 			return fn(c, a, n, offset);
 		error(Eperm);
 	}
+	return 0;
 }
 
 static long
@@ -131,6 +132,7 @@ archwrite(Chan *c, void *a, long n, vlong offset)
 			return fn(c, a, n, offset);
 		error(Eperm);
 	}
+	return 0;
 }
 
 Dev archdevtab = {
@@ -241,6 +243,7 @@ pmctlwrite(Chan*, void *a, long n, vlong)
 		poweroff();
 	}
 	error(Ebadctl);
+	return 0;
 }
 
 static void
@@ -250,28 +253,13 @@ archinit(void)
 	snprint(arch, sizeof(arch), "0x%016ullx", sbigetmarchid());
 	snprint(impid, sizeof(impid), "0x%016ullx", sbigetmimpid());
 	snprint(cpuid, sizeof(cpuid), "%s %s %s", vendor, arch, impid);
-	/* cputype is a bit un-plan9-like for /dev, it has English words in it */
-	snprint(cputype, sizeof(cputype), "riscv64 %ud\next %s\nidle %s %ssending IPIs over %lld ns\nvendor %s arch %s impid %s\n", m->cpumhz, "wfi", soc.idlewake? "": "not ", "hi",  (uvlong)0, vendor, arch, impid);
+	snprint(cputype, sizeof(cputype), "riscv64 %ud\n", m->cpumhz);
 	addarchfile("cputype", 0444, cputyperead, nil);
 	addarchfile("cpuid", 0444, cpuidread, nil);
 	addarchfile("pmctl", 0220, nil, pmctlwrite);
 	sbiinit();
-	boardinit();
 }
 
-static void
-cacheflush(void){
-	print("cacheflush\n");
-	panic("cacheflush");
-}
-
-static void
-halt(void)
-{
-	print("halt\n");
-	panic("halt");
-
-}
 /*
  * attempt to reset the whole system.
  * failing that, just hang.
@@ -280,15 +268,8 @@ void
 archreset(void)
 {
 	iprint("archreset...");
-	cacheflush();
 	spllo();
 	delay(20);
-	if (m->machno == 0 && prstackmax)
-		prstackmax();
-	delay(20);
-iprint("arch-specific reset...");
-	if (rvreset)
-		rvreset();
 	if (!nosbi && m->machno == 0) {
 		if (soc.havesbisrst) {
 			iprint("sbi cold reboot...");
@@ -304,71 +285,6 @@ iprint("arch-specific reset...");
 	iprint("last resort for reset: into wfi.\n");
 	delay(20);
 	for (;;)
-		halt();
+		wfi();
 }
 
-static void
-haltsys(void)
-{
-	panic("mpshutdown: cpu%d: %d active cpus", m->machno, sys->nonline);
-#ifdef xxx
-	int i;
-
-	devtabshutdown();
-	splhi();
-
-	/* paranoia: wait for other cpus */
-	for (i = 100; i > 0 && sys->nonline > 1; i--) {
-		iprint(" %d", sys->nonline);
-		delay(100);
-	}
-	/* we can now use the uniprocessor reset */
-	archreset();
-	notreached();
-#endif
-}
-
-/*
- * secondary cpus should all idle (here or in shutdown, called from reboot).
- * for a true shutdown, reset and boot, cpu 0 should then reset itself or the
- * system as a whole.  if plan 9 is rebooting (loading a new kernel and
- * starting it), cpu 0 needs to keep running to do that work, so we return
- * in that case only.
- *
- * we assume shutdown has previously been called on this cpu.
- */
-void
-mpshutdown(void)
-{
-	//void (*tramp)(Reboot *);
-
-		panic("implement all this mpshutdown jazz");
-#ifdef xxx
-	if(m->machno == 0) {
-		static QLock mpshutdownlock;
-
-		qlock(&mpshutdownlock);
-		/* we are the first proc on cpu0 to begin shutdown */
-		if(!active.rebooting) {
-			haltsys();
-			notreached();
-		}
-	} else {
-		/*
-		 * we're secondary, we should go into sys->reboottramp to enter
-		 * wfi.  if idling, sys->Reboot won't be set and that's okay.
-		 */
-		cacheflush();
-		mmulowidmap();			/* disables user mapping too */
-		usephysdevaddrs();
-
-		/* await populated sys->Reboot */
-		/* secstall is cleared by schedcpus, settrampargs from reboot */
-		while (sys->secstall == RBFLAGSET)
-			coherence();
-		//tramp = (void (*)(Reboot *))PADDR(sys->reboottramp);
-		//(*tramp)(&sys->Reboot);
-		panic("mpshutdown FIXME");
-	}
-#endif
-}

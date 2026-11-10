@@ -6,7 +6,6 @@
 
 #include "mem.h"
 
-TEXT	cas(SB), 1, $-4
 TEXT	cmpswap(SB), 1, $-4
 	MOVWU	ov+8(FP), R12
 	MOVWU	nv+(8+4)(FP), R13

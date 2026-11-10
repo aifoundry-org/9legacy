@@ -4,7 +4,7 @@
 #include "dat.h"
 #include "fns.h"
 #include "io.h"
-#include "../port/pci.h"
+#include "pci.h"
 
 #define MMIOBASE 0x40000000
 #define ECAMBASE 0x30000000

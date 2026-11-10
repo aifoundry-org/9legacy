@@ -24,7 +24,7 @@ mmu1init(void)
 		panic("mmu1init: no memory for mmutop");
 	memset(m->mmutop, 0, L1TOPSIZE);
 	memmove(m->mmutop, sv39, L1TOPSIZE);
-	mmuswitch(nil, 0);
+	mmuswitch(nil);
 }
 
 void

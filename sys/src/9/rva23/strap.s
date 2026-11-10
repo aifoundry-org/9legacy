@@ -36,7 +36,7 @@ EXCPC=14
 	MOV	CSR(SCAUSE), R9;	MOV R9, (34*XLEN)(R2);\
 	MOV	CSR(STVAL), R9;		MOV R9, (35*XLEN)(R2);\
 	MOV	$Mppsuper, R9;		MOV R9, (36*XLEN)(R2); /* curmode */ \
-	MOV	CSR(SSCRATCH), R9;	MOV R9, (37*XLEN)(R2); \
+	MOV	CSR(SSCRATCH), R9;\
 	MOV	R9, (7*XLEN)(R2);	/* R7 as it was when we trapped */\
 	MOV	R(MACH), CSR(SSCRATCH)	/* Mach again, for nested traps */
 
@@ -135,7 +135,8 @@ fromuser:
 	/*
 	 * can't use user-mode stack.  switch to up->kstack.
 	 */
-	MOV	R(USER), R2	/* switch to empty up->kstack */
+	MOV	PROCKSTACK(R(USER)), R2	/* switch to empty up->kstack */
+	ADD	$KSTACK, R2
 	PUSHALLS			/* patches R2 from regsave into Ureg */
 	MOV	SAVESR3(R(MACH)), R9
 	MOV	R9, (3*XLEN)(R2)	/* patch old R3 into Ureg */
@@ -166,8 +167,8 @@ syscallret:
 	 * may have rewritten the Ureg since), and leave this hart's Mach in
 	 * SSCRATCH for the next trap.
 	 */
-	MOV	R(USER), R2
-	SUB $UREGSIZE, R2
+	MOV	PROCKSTACK(R(USER)), R2
+	ADD	$(KSTACK-UREGSIZE), R2
 	POPCSR_MOSTREGS(SEPC, SSTATUS)
 	MOV	(3*XLEN)(R2), R3	/* restore user's SB */
 	MOV	(6*XLEN)(R2), R6
@@ -189,8 +190,8 @@ TEXT sysrforkret(SB), 1, $-4
 	 * forkret() calls us from C, so SP points at its frame, not
 	 * at the Ureg.
 	 */
-	MOV	R(USER), R2
-	SUB	$UREGSIZE, R2
+	MOV	PROCKSTACK(R(USER)), R2
+	ADD	$(KSTACK-UREGSIZE), R2
 	MOV	R0, (ARG*XLEN)(R2)	/* zero saved R(ARG) in ureg */
 	JMP	syscallret
 

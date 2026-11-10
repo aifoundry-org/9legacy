@@ -1,5 +1,5 @@
 /* generated */
-#include <atom.h>
+#include "atom.h"
 
 #define SYSTEM		0x73		/* op code */
 #define ECALLINST	SYSTEM
@@ -10,8 +10,9 @@
 #define USER	6			/* up-> */
 #define MACH	7			/* m-> */
 #define ARG	8
+#define RARG	R8			/* 9legacy ja lacks the RARG name */
 
-#define UREGSIZE (XLEN*(32+6))	/* room for pc, regs, csrs, mode, scratch */
+#define UREGSIZE (XLEN*(32+5))	/* room for pc, regs, csrs, mode */
 
 #define RBFLAGSTALL 1
 #define RBFLAGSET (0xecce | RBFLAGSTALL)
@@ -378,6 +379,7 @@
 #define MMACHNO		0
 #define SPLPC		XLEN
 #define MACHPROC	(2*XLEN)
+#define PROCKSTACK	(2*XLEN)	/* offset of kstack in Proc, after Label sched */
 #define SAVESR2		(3*XLEN)
 #define SAVESR3		(4*XLEN)
 #define SAVESR4		(5*XLEN)
