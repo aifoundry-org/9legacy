@@ -1,0 +1,17 @@
+#!/bin/rc
+# narrow: comparisons and truth tests of values converted to char,
+# uchar, short and ushort, and from vlong to int.  jc compared the
+# whole register, so p[0] == (char)i was false for c = -128,
+# i = 128 (9d14b5aa6).  narrow.want is 8c's output.
+
+rfork e
+mk clean >/dev/null
+mk narrow >/dev/null || exit compile
+./narrow >/tmp/narrow.$pid
+cmp -s /tmp/narrow.$pid narrow.want
+st=$status
+if(! ~ $st '')
+	diff /tmp/narrow.$pid narrow.want | sed 20q
+rm -f /tmp/narrow.$pid
+mk clean >/dev/null
+exit $st

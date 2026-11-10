@@ -1,0 +1,31 @@
+#!/bin/rc
+# run [test ...]: run the regression tests, all of them by default.
+# A test is a directory area/name holding an rc script, run, that
+# exits with an empty status when the test passes.  An argument
+# names a test (kern/ktest) or an area (kern).  Prints a line per
+# test and exits with the names of the tests that failed.
+
+rfork e
+cd /usr/glenda/regression
+if(~ $#* 0)
+	*=`{ls -d */*/run | sed 's,/run$,,'}
+failed=()
+for(a in $*){
+	tests=`{ls -d $a/run $a/*/run >[2]/dev/null | sed 's,/run$,,'}
+	if(~ $#tests 0){
+		echo regress: no test $a >[1=2]
+		failed=($failed $a)
+	}
+	for(t in $tests){
+		echo regress: $t
+		if(@{cd $t && rc run})
+			echo regress: $t ok
+		if not {
+			echo regress: $t failed
+			failed=($failed $t)
+		}
+	}
+}
+if(! ~ $#failed 0)
+	exit 'failed: '^$"failed
+echo regress: all ok

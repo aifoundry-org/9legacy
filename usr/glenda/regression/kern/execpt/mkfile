@@ -1,0 +1,27 @@
+</$objtype/mkfile
+
+# built and installed in run's private /tmp
+TARG=argcheck echo sed sort tr
+BIN=/tmp/bin
+GEN=0
+
+all:V:	${TARG:%=$O.%}
+
+install:V:	${TARG:%=%.install}
+
+# replace the program by renaming, never removing the old one,
+# so that processes still loading it can page it in
+%.install:V:	$O.%
+	cp $O.$stem $BIN/new.$stem
+	if(test -e $BIN/$stem)
+		mv $BIN/$stem $BIN/old.$stem.$GEN
+	mv $BIN/new.$stem $BIN/$stem
+
+$O.%:	%.$O
+	$LD -o $target $prereq
+
+%.$O:	%.c
+	$CC $CFLAGS $stem.c
+
+clean:V:
+	rm -f *.[$OS] [$OS].*

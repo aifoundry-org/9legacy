@@ -1,0 +1,55 @@
+#!/bin/rc
+# basics: a freshly booted kernel and userland work together: the
+# basics, pipes, fp in awk and hoc, notes through /proc, processes
+# over all cpus and the network.  Each check prints a line; the first
+# failure exits non-empty.
+
+rfork e
+
+fn fail {
+	echo basics: $* failed >[1=2]
+	exit $1
+}
+
+fn ok {
+	echo basics: $1 ok
+}
+
+# the basics
+cat /dev/cputype | grep -s . || fail cputype
+test -d /$cputype/bin || fail root
+ps | grep -s ' init$' || fail ps
+date | grep -s ' 20[0-9][0-9]$' || fail date
+ok basics
+
+# pipes, fp in awk and hoc
+~ `{seq 1 1000 | awk '{s+=$1} END {print s}'} 500500 || fail pipe
+~ `{echo 'sqrt(2)' | hoc} 1.414213562373 || fail hoc
+~ `{echo foo bar | sed 's/foo/baz/' | tr a-z A-Z} 'BAZ BAR' || fail sed
+ok pipes
+
+# notes through /proc
+sleep 100 &
+pid=$apid
+echo kill >/proc/$pid/note
+wait $pid
+! test -d /proc/$pid || fail note
+ok note
+
+# concurrent processes over all cpus
+ncpu=`{wc -l </dev/sysstat}
+for(i in 1 2 3 4 5 6 7 8)
+	seq 1 20000 | awk '{s+=$1*1.5} END {print s}' >/tmp/basics.$i &
+wait
+for(i in 1 2 3 4 5 6 7 8){
+	~ `{cat /tmp/basics.$i} 300015000 || fail parallel $i
+	rm /tmp/basics.$i
+}
+ok parallel-$ncpu-cpus
+
+# the network, when there is an interface
+if(test -d /net/ether0){
+	ip/ping -n 3 10.0.2.2 >/dev/null || fail ping
+	ok ping
+}
+echo basics: all ok

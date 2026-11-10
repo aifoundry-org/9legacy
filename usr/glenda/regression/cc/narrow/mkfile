@@ -1,0 +1,10 @@
+</$objtype/mkfile
+
+narrow:	narrow.$O
+	$LD -o $target $prereq
+
+%.$O:	%.c
+	$CC $CFLAGS $stem.c
+
+clean:V:
+	rm -f *.[$OS] narrow
