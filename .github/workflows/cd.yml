@@ -48,6 +48,9 @@ jobs:
           ./boot/mkdirs
           ./boot/getbin
 
+      - name: Build the kernel
+        run: ./boot/test kernel
+
       - name: Build the CD
         run: ./boot/test cd
 

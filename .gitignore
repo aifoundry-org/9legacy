@@ -23,6 +23,7 @@ lib/audio
 mail/box/glenda/mbox
 *.o
 pbsraw
+riscv64/9*
 riscv64/bin
 riscv64/init
 riscv64/lib

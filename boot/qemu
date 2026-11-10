@@ -20,16 +20,22 @@ while [ $# -gt 0 ]; do
 	-u9fs)		u9fs=true ;;
 	-386)		arch=386 ;;
 	-amd64)		arch=amd64 ;;
+	-riscv64)	arch=riscv64 ;;
 	-cpu)		kind=cpu ;;
 	-smp)		smp=$2; shift; case $smp in ''|*[!0-9]*) echo 'boot/qemu: -smp needs a number' >&2; exit 1 ;; esac ;;
 	-9fat)		boot=9fat ;;
 	-vga)		vga=true ;;
 	*)
-		echo 'usage: boot/qemu [-386 | -amd64] [-cpu | -vga] [-smp n] [-9fat] [-u9fs]' >&2
+		echo 'usage: boot/qemu [-386 | -amd64 | -riscv64] [-cpu | -vga] [-smp n] [-9fat] [-u9fs]' >&2
 		exit 1
 	esac
 	shift
 done
+
+if [ $arch = riscv64 ] && { [ $vga = true ] || [ $boot = 9fat ] || [ $u9fs = true ]; }; then
+	echo 'boot/qemu: -riscv64 boots only the rva23 cpu kernel over virtio-9p' >&2
+	exit 1
+fi
 
 if [ $vga = true ] && { [ $kind = cpu ] || [ $boot = 9fat ] || [ $u9fs = true ]; }; then
 	echo 'boot/qemu: -vga is for the default terminal kernel (no -cpu/-9fat/-u9fs)' >&2
@@ -58,6 +64,25 @@ gfx='-display none'
 net9p="-fsdev local,id=root9p,path=$PWD,security_model=none \
 	-device virtio-9p-pci,fsdev=root9p,mount_tag=root,disable-legacy=on"
 slirp="-device virtio-net-pci,netdev=net0,$mac -netdev user,id=net0"
+
+# the rva23 kernel on qemu virt, entered in S mode by OpenSBI;
+# there is no kvm for it, memory must end below 4GiB, and its
+# virtio drivers know only modern (virtio 1.0) devices
+if [ $arch = riscv64 ]; then
+	elf=riscv64/9rva23
+	if [ ! -f $elf ]; then
+		echo "boot/qemu: $elf missing" >&2
+		echo '# build it in a 386 guest: cd /sys/src/9/rva23 && mk install' >&2
+		exit 1
+	fi
+	[ $smp -gt 8 ] && smp=8
+	exec qemu-system-riscv64 -M virt -bios default \
+		-cpu rv64,svpbmt=true,zicbom=true,sstc=true \
+		-m 2G -smp $smp $gfx -serial stdio \
+		$net9p -device virtio-net-pci,netdev=net0,$mac,disable-legacy=on \
+		-netdev user,id=net0 -kernel $elf \
+		-append "nobootprompt=virtio9p sysname=9legacy-$arch user=glenda"
+fi
 
 if [ $boot = 9fat ]; then
 	fat=boot/9fat.raw

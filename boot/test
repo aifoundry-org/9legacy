@@ -73,17 +73,32 @@ cd)
 	mark=CD
 	timeout=14400
 	;;
+kernel)
+	# the 386 kernel the other tasks boot, built from this tree
+	# by the one getbin installs
+	qemu=(-386 -smp 1)
+	guest="@{cd /sys/src/9/pc && mk 'CONF=pcf' install && mk clean}"
+	mark=KERNEL
+	timeout=900
+	;;
 smoke)
 	case ${1:-} in
 	-386|-amd64)	qemu=($1) ;;
-	*)		echo "usage: $prog smoke [-386 | -amd64]" >&2; exit 1 ;;
+	-riscv64)	qemu=($1 -smp ${SMP:-4}) ;;
+	*)		echo "usage: $prog smoke [-386 | -amd64 | -riscv64]" >&2; exit 1 ;;
 	esac
 	guest='rc /usr/glenda/bin/rc/smoke'
 	mark=SMOKE
 	timeout=600
+	if [ $1 = -riscv64 ]; then
+		# the kernel regression tests, then the common smoke
+		# test; there is no kvm for riscv64
+		guest="rc /usr/glenda/regression/run kern/basics kern/ktest && $guest"
+		timeout=3600
+	fi
 	;;
 *)
-	echo "usage: $prog build | cd [rev] | smoke [-386 | -amd64]" >&2
+	echo "usage: $prog build | cd [rev] | kernel | smoke [-386 | -amd64 | -riscv64]" >&2
 	exit 1
 	;;
 esac
@@ -94,7 +109,7 @@ serial=${SERIAL:-/tmp/9legacy-$task-$$.log}
 
 cleanup() {
 	rc=$?
-	pkill -f "qemu-system-x86_64.*mac=$mac" 2>/dev/null || true
+	pkill -f "qemu-system-.*mac=$mac" 2>/dev/null || true
 	if [ $rc -ne 0 ]; then
 		echo "$prog: $task failed, serial log $serial" >&2
 		tail -40 $serial >&2
@@ -114,7 +129,7 @@ proc bail {code} { catch {exec kill [exp_pid]}; exit $code }
 proc die {msg} { puts stderr "\nboot/test: $msg"; bail 1 }
 proc atprompt {} {
 	expect {
-		-re {% $} {}
+		-re {[%#] $} {}
 		timeout { die "no shell prompt" }
 		eof { die "qemu exited" }
 	}
@@ -126,7 +141,7 @@ proc waitready {} {
 	for {set i 0} {$i < 60} {incr i} {
 		send "\r"
 		expect {
-			-re {% $} { set timeout $save; return }
+			-re {[%#] $} { set timeout $save; return }
 			timeout {}
 			eof { die "qemu exited" }
 		}

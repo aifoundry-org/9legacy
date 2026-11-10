@@ -28,6 +28,8 @@ echo '# kernel arm'
 @{ objtype=arm; cd /sys/src/9/bcm && mk 'CONF=pi' } || fatal kernel arm
 echo '# kernel arm64'
 @{ objtype=arm64; cd /sys/src/9/bcm64 && mk 'CONF=pi5' } || fatal kernel arm64
+echo '# kernel riscv64'
+@{ objtype=riscv64; cd /sys/src/9/rva23 && mk install } || fatal kernel riscv64
 
 for(o in 386 amd64 arm arm64 riscv64)
 	clean $o
@@ -37,3 +39,4 @@ echo '# clean kernels'
 @{ objtype=amd64; cd /sys/src/9k/k10 && mk clean } || fatal clean kernel amd64
 @{ objtype=arm; cd /sys/src/9/bcm && mk clean } || fatal clean kernel arm
 @{ objtype=arm64; cd /sys/src/9/bcm64 && mk clean } || fatal clean kernel arm64
+@{ objtype=riscv64; cd /sys/src/9/rva23 && mk clean } || fatal clean kernel riscv64

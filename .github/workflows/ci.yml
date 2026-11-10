@@ -13,14 +13,14 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 expect curl bzip2 \
+          sudo apt-get install -y qemu-system-x86 expect curl bzip2 zstd \
             build-essential libx11-dev libxext-dev libxt-dev libfontconfig1-dev
 
       - name: Check out plan9port
@@ -49,11 +49,63 @@ jobs:
           ./boot/mkdirs
           ./boot/getbin
 
+      - name: Build the kernel
+        run: ./boot/test kernel
+
       - name: Build every architecture
         run: ./boot/test build
 
-      - name: Smoke 386
-        run: ./boot/test smoke -386
+      # the binaries and kernels the smoke tests boot; tar keeps the modes
+      - name: Pack the build
+        run: |
+          git ls-files -z -o -i --exclude-standard --directory 386 amd64 riscv64 |
+            tar --null -T - -cf - | zstd -T0 >build.tar.zst
 
-      - name: Smoke amd64
-        run: ./boot/test smoke -amd64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: build.tar.zst
+          retention-days: 3
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: '386'
+            packages: qemu-system-x86
+          - arch: amd64
+            packages: qemu-system-x86
+          - arch: riscv64
+            packages: qemu-system-riscv opensbi
+    name: smoke ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.packages }} expect zstd
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: build
+
+      - name: Unpack the build
+        run: |
+          ./boot/mkdirs
+          zstd -dc build.tar.zst | tar -xf -
+          rm build.tar.zst
+
+      - name: Smoke ${{ matrix.arch }}
+        run: ./boot/test smoke -${{ matrix.arch }}

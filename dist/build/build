@@ -224,6 +224,7 @@ fn build_riscv64{
 	for(i in /sys/src/libc) {cd $i && mk nuke && mk install && mk clean}
 	for(i in /sys/src/cmd/i?) {cd $i && mk nuke && mk install && mk clean}
 	cd /sys/src && objtype=riscv64 {mk nuke && mk install && mk clean}
+	cd /sys/src/9/rva23 && mk nuke && mk install && mk clean
 }
 
 for(i in $arch){
