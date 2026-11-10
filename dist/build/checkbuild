@@ -1,0 +1,17 @@
+#!/bin/rc
+
+rfork en
+
+if(grep suicide log/build)
+	exit failed
+
+if(grep -v 'is up to date' log/build | grep -v 'mk: no recipe to make '''out.8''' in directory /sys/src/cmd/aux/vga' | grep 'mk:')
+	exit failed
+
+# mk: no recipe to make 'out.8' in directory /sys/src/cmd/aux/vga
+# This error happens because Geoff changed the /sys/src/cmd/aux/vga
+# mkfile from mkone to mkmany, so there is no 8.out rule anymore,
+# but mkmulti handles this issue (though not silently) by calling 8.vga
+# in a second time.
+
+exit ''

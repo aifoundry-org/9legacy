@@ -1,0 +1,8 @@
+#!/bin/rc
+
+rfork en
+
+. funcs
+
+mv /sys/lib/dist/web.protect/plan9-new.iso.bz2 /usr/web/$dst_name.iso.bz2
+{ cd /usr/web && bunzip2 $dst_name.iso.bz2 && chmod +t $dst_name.iso }

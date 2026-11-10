@@ -1,0 +1,228 @@
+#!/bin/rc
+
+rfork en
+
+. funcs
+
+src9=$build/sources/plan9
+
+fn access_rights{
+	lst=(\
+		/dist/replica/9legacy\
+		/rc/bin/xa\
+		/rc/bin/xc\
+		/rc/bin/xl\
+		/sys/lib/dist/pc/inst/iskfs\
+		/sys/lib/dist/pc/inst/isventibloom\
+		/sys/lib/dist/pc/inst/mountkfs\
+		/sys/src/9k-geoff/k10/exec2hex\
+		/sys/src/9k-geoff/mk/mkparts\
+		/sys/src/9k-geoff/mk/mkrootall\
+		/sys/src/9k-geoff/rv/exec2hex\
+		/sys/src/9k-geoff/rv32/exec2hex\
+		/sys/src/9k/mk/mkrootall\
+		/sys/src/9k/mk/mkrr\
+		/sys/src/boot/vt4/mkenum\
+		/sys/src/boot/vt4/mkfilelist\
+		/sys/src/boot/vt5/mkenum\
+		/sys/src/boot/vt5/mkfilelist\
+		/sys/src/nix/mk/mkrootall\
+		/rc/bin/strzip\
+		/sys/src/ape/cmd/mknofp\
+		/sys/src/ape/lib/ap/syscall/genall\
+		/sys/src/ape/lib/ap/syscall/gencall.manual\
+		/sys/src/cmd/mknofp\
+		/sys/src/9/pcboot/bootcfg\
+		/sys/src/9/pcboot/klocate\
+		/sys/src/9k/k10/exec2hex\
+		/sys/src/9k/mk/mkparts\
+		/sys/src/9k/mk/mkrootall\
+		/sys/src/9k/rv/exec2hex\
+		/sys/src/9k/rv32/exec2hex\
+	)
+
+	for(i in $lst) {
+		if(test -f $src9/$i && ! test -x $src9/$i)
+			chmod +x $src9/$i
+	}
+}
+
+fn mkdirs{
+	lst=(\
+		arm64\
+		mips64\
+		spim\
+		spim64\
+		riscv\
+		riscv64\
+	)
+
+	dirs=(\
+		/bin/ape \
+		/bin/auth \
+		/bin/aux \
+		/bin/bitsy \
+		/bin/dial \
+		/bin/disk \
+		/bin/fossil \
+		/bin/fs \
+		/bin/games \
+		/bin/ip/httpd \
+		/bin/ndb \
+		/bin/replica \
+		/bin/upas \
+		/bin/usb \
+		/bin/venti \
+		/lib \
+		/lib/ape \
+	)
+
+	for(i in $lst)
+		for(j in $dirs)
+			mkdir -p $src9/$i/$j
+
+	for(i in $lst)
+		for(j in `{du -a $src9/$i | awk '{print $2}'})
+			if(test -d $j)
+				chmod 775 $j
+
+	for(i in $lst)
+		mkdir $src9/acme/bin/$i
+		chmod 775 $src9/acme/bin/$i
+}
+
+fn empty_files{
+	lst=(\
+		/sys/src/9/vt4/qtm.h\
+		/sys/src/9/vt5/qtm.h\
+		/sys/src/boot/vt4/portdata.h\
+		/sys/src/boot/vt4/qtm.h\
+		/sys/src/boot/vt5/portdata.h\
+		/sys/src/boot/vt5/qtm.h\
+		/sys/src/cmd/ip/httpd/whois.c\
+		/sys/src/cmd/ip/httpd/classify.c\
+	)
+
+	for(i in $lst) {
+		if(test -d $src9^`{basename -d $i})
+			touch $src9/$i
+	}
+
+	if (test -d $src9/sys/src/cmd/awk/orig) # Geoff
+		touch $src9/sys/src/cmd/awk/math.h
+}
+
+fn copy_nvram{
+	lst=(\
+		/cfg/example\
+		/sys/src/9/bcm\
+		/sys/src/9/kw\
+		/sys/src/9/loongson64\
+		/sys/src/9/loongson\
+		/sys/src/9/omap\
+		/sys/src/9/rb\
+		/sys/src/9/teg2\
+		/sys/src/9/vt4\
+		/sys/src/9/vt5\
+		/sys/src/9k/root\
+		/sys/src/nix/root\
+	)
+
+	for(i in $lst){
+		if(test -d $src9^$i){
+			if(! ~ $nvram ''){
+				dd -if $nvram -of $src9^$i/nvram
+			}
+			if not {
+				dd -if /dev/zero -of $src9^$i/nvram -bs 512 -count 1
+			}
+		}
+	}
+}
+
+fn copy_nvram_bcm{
+	if(! ~ $nvram ''){
+		lst=(\
+			/sys/src/9/bcm/pi\
+			/sys/src/9/bcm/picpu\
+			/sys/src/9/bcm/pi2\
+			/sys/src/9/bcm/pi2cpu\
+			/sys/src/9/bcm/pi4\
+			/sys/src/9/bcm/pi4cpu\
+		)
+
+		for(i in $lst){
+			echo '	'nvram >> $src9^$i
+		}
+
+		dd -if $nvram -of $src9/sys/src/9/bcm/nvram
+	}
+}
+
+fn mips_24k{
+	sed 's/Mips24k	= 0/Mips24k	= 1/' < $src9/sys/src/cmd/vl/noop.c > $src9/sys/src/cmd/vl/noop.c.new && mv $src9/sys/src/cmd/vl/noop.c.new $src9/sys/src/cmd/vl/noop.c
+}
+
+fn virtex{
+	hget -o /tmp/virtex4+5.tgz http://plan9.bell-labs.com/sources/extra/virtex4+5.tgz
+	cd $src9/sys/src && tar xf /tmp/virtex4+5.tgz
+	rm -f /tmp/virtex4+5.tgz
+#	cd $src9 && hget http://www.9legacy.org/9legacy/patch/vt4-misc.diff | ape/patch -p1
+	cd $src9 && hget http://www.9legacy.org/9legacy/patch/vt-validalign.diff | ape/patch -p1
+}
+
+fn firmware{
+	if(test -d $src9/sys/src/9/bcm){
+		if (! test -d $src9/sys/lib/firmware)
+			mkdir $src9/sys/lib/firmware
+		if (test -f $src9/sys/src/9/bcm/pi2) {
+			for (i in brcmfmac43430-sdio.^(bin txt))
+				#hget -o $src9/sys/lib/firmware/$i https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$i
+				cd /tmp && tar xzf /sys/lib/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
+		}
+		if (test -f $src9/sys/src/9/bcm/pi4) {
+			for (i in brcmfmac43436-sdio.^(bin clm_blob txt))
+				#hget -o $src9/sys/lib/firmware/$i https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$i
+				cd /tmp && tar xzf /sys/lib/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
+		}
+		if (test -f $src9/sys/src/9/bcm/pi4) {
+			for (i in brcmfmac43455-sdio.^(bin clm_blob txt))
+				#hget -o $src9/sys/lib/firmware/$i https://github.com/RPi-Distro/firmware-nonfree/raw/buster/brcm/$i
+				cd /tmp && tar xzf /sys/lib/build/data/firmware-nonfree.tar.bz2 firmware-nonfree/brcm/$i && mv firmware-nonfree/brcm/$i $src9/sys/lib/firmware && rm -r firmware-nonfree
+		}
+	}
+}
+
+fn apetypes{
+	if(test -f $src9/amd64/include/ape/_apetypes.h){
+		for(i in $src9/*/include/ape){
+			if(! test -f $i/_apetypes.h)
+				touch $i/_apetypes.h
+		}
+	}
+}
+
+# copy work-in-progress stuff
+fn wip{
+	if (test -d /usr/bootes/wip) {
+		cd /usr/bootes/wip
+		for(i in `{du -a | awk '{print $2}' | sed 's,\./,,'}){
+			if(test -f $i){
+				echo cp $i $src9/$i
+				cp $i $src9/$i
+			}
+		}
+	}
+}
+
+access_rights
+mkdirs
+#virtex
+empty_files
+copy_nvram
+copy_nvram_bcm
+mips_24k
+firmware
+apetypes
+
+exit ''
