@@ -174,7 +174,15 @@ timerset(uvlong next)
 		cpwrtimerphysctl(Enable);
 	}else{
 		tn = (Systimers*)SYSTIMERS;
-		tn->c3 = tn->clo + period;
+		/*
+		 * a compare value the counter passes before it is set
+		 * matches only when the counter wraps, 71 minutes on:
+		 * set it again if an fiq or a slow emulator took longer
+		 * than period between reading clo and writing c3
+		 */
+		do
+			tn->c3 = tn->clo + period;
+		while((int)(tn->c3 - tn->clo) <= 0 && (tn->cs & 1<<3) == 0);
 	}
 }
 
