@@ -331,8 +331,15 @@ bind(Ctlr *ctlr, Udev *udev, Cmdbuf *cb)
 	if(bufsize < maxpkt || bufsize > 32*1024)
 		cmderror(cb, "bad bufsize");
 	buf = smalloc(bufsize);
-	inchan = namec(cb->f[2], Aopen, OREAD, 0);
-	outchan = namec(cb->f[3], Aopen, OWRITE, 0);
+	if(strcmp(cb->f[2], cb->f[3]) == 0){
+		/* one inout endpoint can be open only once */
+		inchan = namec(cb->f[2], Aopen, ORDWR, 0);
+		incref(inchan);
+		outchan = inchan;
+	}else{
+		inchan = namec(cb->f[2], Aopen, OREAD, 0);
+		outchan = namec(cb->f[3], Aopen, OWRITE, 0);
+	}
 	assert(inchan != nil && outchan != nil);
 	if(parsemac(ea, cb->f[4], Eaddrlen) != Eaddrlen)
 		cmderror(cb, "bad etheraddr");

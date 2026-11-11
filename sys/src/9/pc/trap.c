@@ -995,7 +995,7 @@ validalign(uintptr addr, unsigned align)
 	/*NOTREACHED*/
 }
 
-long
+uintptr
 execregs(ulong entry, ulong ssize, ulong nargs)
 {
 	ulong *sp;

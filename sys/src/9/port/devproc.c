@@ -147,7 +147,7 @@ static char *sname[]={ "Text", "Data", "Bss", "Stack", "Shared", "Phys", };
 #define	NOTEID(q)	((q).vers)
 
 void	procctlreq(Proc*, char*, int);
-int	procctlmemio(Proc*, ulong, int, void*, int);
+int	procctlmemio(Proc*, uintptr, int, void*, int);
 Chan*	proctext(Chan*, Proc*);
 Segment* txt2data(Proc*, Segment*);
 int	procstopped(void*);
@@ -751,7 +751,7 @@ procread(Chan *c, void *va, long n, vlong off)
 		return n;
 
 	case Qmem:
-		if(offset < KZERO)
+		if(offset < KZERO || seg(p, offset, 0) != nil)
 			return procctlmemio(p, offset, n, va, 1);
 
 		if(!iseve())
@@ -1040,7 +1040,7 @@ procwrite(Chan *c, void *va, long n, vlong off)
 	int id, m;
 	Proc *p, *t, *et;
 	char *a, *arg, buf[ERRMAX];
-	ulong offset = off;
+	uintptr offset = off;
 
 	a = va;
 	if(c->qid.type & QTDIR)
@@ -1505,7 +1505,7 @@ procstopped(void *a)
 }
 
 int
-procctlmemio(Proc *p, ulong offset, int n, void *va, int read)
+procctlmemio(Proc *p, uintptr offset, int n, void *va, int read)
 {
 	KMap *k;
 	Pte *pte;

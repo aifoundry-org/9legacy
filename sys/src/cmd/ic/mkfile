@@ -34,11 +34,9 @@ $LIB:
 	mk install
 	mk clean
 
-../cc/y.tab.h: ../cc/cc.y
-	cd ../cc
-	mk y.tab.h
-
-lex.$O: ../cc/lex.c ../cc/y.tab.h
+# made here, after $LIB, whose recipe cleans y.tab.h away
+lex.$O: ../cc/lex.c ../cc/cc.y $LIB
+	@{cd ../cc && mk y.tab.h}
 	$CC -Dmain'='ccmain $CFLAGS ../cc/lex.c
 
 %.$O: ../cc/%.c

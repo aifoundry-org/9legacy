@@ -279,7 +279,7 @@ syscall(Ureg* ureg)
 	kexit(ureg);
 }
 
-long	/* void* */
+uintptr
 execregs(ulong entry, ulong ssize, ulong nargs)
 {
 	ulong *sp;

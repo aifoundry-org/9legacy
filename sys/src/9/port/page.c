@@ -118,7 +118,7 @@ pagechainhead(Page *p)
 }
 
 Page*
-newpage(int clear, Segment **s, ulong va)
+newpage(int clear, Segment **s, uintptr va)
 {
 	Page *p;
 	KMap *k;

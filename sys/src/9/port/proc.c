@@ -1324,7 +1324,7 @@ proctab(int i)
 void
 dumpaproc(Proc *p)
 {
-	ulong bss;
+	uintptr bss;
 	char *s;
 
 	if(p == 0)
@@ -1337,7 +1337,7 @@ dumpaproc(Proc *p)
 	s = p->psstate;
 	if(s == 0)
 		s = statename[p->state];
-	print("%3lud:%10s pc %8lux dbgpc %8lux  %8s (%s) ut %ld st %ld bss %lux qpc %lux nl %lud nd %lud lpc %p pri %lud\n",
+	print("%3lud:%10s pc %#p dbgpc %#p  %8s (%s) ut %ld st %ld bss %#p qpc %#p nl %lud nd %lud lpc %#p pri %lud\n",
 		p->pid, p->text, p->pc, dbgpc(p),  s, statename[p->state],
 		p->time[0], p->time[1], bss, p->qpc, p->nlocks.ref, p->delaysched, p->lastlock ? p->lastlock->pc : 0, p->priority);
 }

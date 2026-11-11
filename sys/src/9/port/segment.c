@@ -56,7 +56,7 @@ initseg(void)
 }
 
 Segment *
-newseg(int type, ulong base, ulong size)
+newseg(int type, uintptr base, ulong size)
 {
 	Segment *s;
 	int mapsize;
@@ -134,7 +134,7 @@ putseg(Segment *s)
 }
 
 void
-relocateseg(Segment *s, ulong offset)
+relocateseg(Segment *s, uintptr offset)
 {
 	Page **pg, *x;
 	Pte *pte, **p, **endpte;
@@ -242,7 +242,7 @@ segpage(Segment *s, Page *p)
 }
 
 Image*
-attachimage(int type, Chan *c, ulong base, ulong len)
+attachimage(int type, Chan *c, uintptr base, ulong len)
 {
 	Image *i, **l;
 
@@ -436,11 +436,12 @@ putimage(Image *i)
 	unlock(i);
 }
 
-long
-ibrk(ulong addr, int seg)
+uintptr
+ibrk(uintptr addr, int seg)
 {
 	Segment *s, *ns;
-	ulong newtop, newsize;
+	uintptr newtop;
+	ulong newsize;
 	int i, mapsize;
 	Pte **map;
 
@@ -516,7 +517,7 @@ ibrk(ulong addr, int seg)
  *  called with s->lk locked
  */
 void
-mfreeseg(Segment *s, ulong start, int pages)
+mfreeseg(Segment *s, uintptr start, int pages)
 {
 	int i, j, size;
 	ulong soff;
@@ -577,11 +578,11 @@ out:
 }
 
 Segment*
-isoverlap(Proc *p, ulong va, int len)
+isoverlap(Proc *p, uintptr va, int len)
 {
 	int i;
 	Segment *ns;
-	ulong newtop;
+	uintptr newtop;
 
 	newtop = va+len;
 	for(i = 0; i < NSEG; i++) {
@@ -638,8 +639,8 @@ isphysseg(char *name)
 	return rv;
 }
 
-ulong
-segattach(Proc *p, ulong attr, char *name, ulong va, ulong len)
+uintptr
+segattach(Proc *p, ulong attr, char *name, uintptr va, ulong len)
 {
 	int sno;
 	Segment *s, *os;
@@ -735,7 +736,8 @@ uintptr
 syssegflush(uintptr *arg)
 {
 	Segment *s;
-	ulong addr, l;
+	uintptr addr;
+	ulong l;
 	Pte *pte;
 	int chunk, ps, pe, len;
 
@@ -783,7 +785,7 @@ syssegflush(uintptr *arg)
 }
 
 void
-segclock(ulong pc)
+segclock(uintptr pc)
 {
 	Segment *s;
 

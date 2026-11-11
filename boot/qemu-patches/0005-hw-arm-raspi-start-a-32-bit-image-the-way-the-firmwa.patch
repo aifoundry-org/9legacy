@@ -1,0 +1,93 @@
+From 9f698af14a9ef56d0145d0ec808c654693e71492 Mon Sep 17 00:00:00 2001
+From: Shelley <shelley@exe.dev>
+Date: Tue, 10 Nov 2026 23:33:05 +0000
+Subject: [PATCH] hw/arm/raspi: start a 32-bit image the way the firmware does
+
+With -bios, a Pi 0, 1 or 2 had its image loaded at 0x8000 like the
+firmware's kernel.img, but all its cores started at 0, where there is
+nothing, instead of core 0 at the image and the others parked until
+the system starts them through their mailbox 3, as the firmware has
+them.  A Plan 9 kernel then had to be entered through a branch put
+at 0, and its other cores ran its entry code while core 0 was
+setting up the machine, at times taking a half-built Mach and
+crashing the system.
+
+Write at 0 a stub that does what the firmware's does: enter the
+image on core 0 with r0 = 0, r1 = the machine type and r2 = 0x100,
+the ATAGS, and on the other cores wait for an address in mailbox 3,
+as write_smpboot does for -kernel.
+
+Co-authored-by: Shelley <shelley@exe.dev>
+---
+ hw/arm/raspi.c | 51 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
+diff --git a/hw/arm/raspi.c b/hw/arm/raspi.c
+index 3f99e87..c7bc950 100644
+--- a/hw/arm/raspi.c
++++ b/hw/arm/raspi.c
+@@ -141,6 +141,47 @@ static void write_smpboot(ARMCPU *cpu, const struct arm_boot_info *info)
+                          info->smp_loader_start, smpboot, fixupcontext);
+ }
+ 
++/*
++ * What the firmware leaves at 0 when it starts kernel.img on a 32-bit
++ * Pi: core 0 enters the kernel with r0 = 0, r1 = the machine type and
++ * r2 = the ATAGS; the other cores of a BCM2836 wait for an address in
++ * their mailbox 3, as with write_smpboot.
++ */
++static void write_armstub(hwaddr entry, uint32_t board_id,
++                          uint32_t processor_id, AddressSpace *as)
++{
++    static const ARMInsnFixup armstub[] = {
++        { 0xee100fb0 }, /*    mrc     p15, 0, r0, c0, c0, 5;get core ID */
++        { 0xe7e10050 }, /*    ubfx    r0, r0, #0, #2       ;extract LSB */
++        { 0xe3500000 }, /*    cmp     r0, #0 */
++        { 0x1a000002 }, /*    bne     1f */
++        { 0xe59f1020 }, /*    ldr     r1, =board_id */
++        { 0xe3a02c01 }, /*    mov     r2, #0x100           ;ATAGS */
++        { 0xe59ff01c }, /*    ldr     pc, =entry */
++        { 0xe59f501c }, /* 1: ldr     r5, =0x400000CC      ;load mbox base */
++        { 0xe320f002 }, /* 2: wfe */
++        { 0xe7953200 }, /*    ldr     r3, [r5, r0, lsl #4] ;read mbox for our core */
++        { 0xe3530000 }, /*    cmp     r3, #0               ;spin while zero */
++        { 0x0afffffb }, /*    beq     2b */
++        { 0xe7853200 }, /*    str     r3, [r5, r0, lsl #4] ;clear mbox */
++        { 0xe12fff13 }, /*    bx      r3                   ;jump to target */
++        { 0, FIXUP_BOARDID },
++        { 0, FIXUP_ENTRYPOINT_LO },
++        { 0x400000cc }, /* (constant: mailbox 3 read/clear base) */
++        { 0, FIXUP_TERMINATOR }
++    };
++    uint32_t fixupcontext[FIXUP_MAX] = { 0 };
++    const ARMInsnFixup *stub = armstub;
++
++    fixupcontext[FIXUP_BOARDID] = board_id;
++    fixupcontext[FIXUP_ENTRYPOINT_LO] = entry;
++    if (processor_id < PROCESSOR_ID_BCM2836) {
++        /* one core, which may not have ubfx: skip to its part */
++        stub = armstub + 4;
++    }
++    arm_write_bootloader("raspi_armstub", as, 0, stub, fixupcontext);
++}
++
+ static void write_smpboot64(ARMCPU *cpu, const struct arm_boot_info *info)
+ {
+     AddressSpace *as = arm_boot_address_space(cpu, info);
+@@ -238,6 +279,16 @@ static void setup_boot(MachineState *machine, ARMCPU *cpu,
+ 
+         s->binfo.entry = firmware_addr;
+         s->binfo.firmware_loaded = true;
++
++        /*
++         * the cores start at 0, where the firmware of a 32-bit Pi
++         * leaves a stub that starts the image on core 0 and parks
++         * the others
++         */
++        if (processor_id <= PROCESSOR_ID_BCM2836) {
++            write_armstub(firmware_addr, s->binfo.board_id, processor_id,
++                          arm_boot_address_space(cpu, &s->binfo));
++        }
+     }
+ 
+     arm_load_kernel(cpu, machine, &s->binfo);

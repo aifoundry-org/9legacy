@@ -1,0 +1,22 @@
+#!/bin/rc
+
+rfork en
+
+. funcs
+
+root=$build/sources/plan9
+repl=$root/dist/replica
+proto=$repl/plan9.proto
+db=$repl/plan9.db
+db2=$repl/_plan9.db
+log=$repl/plan9.log
+> $db
+replica/updatedb -p $proto -r $root -x $repl $db >$log
+replica/compactdb $db >/tmp/a && mv /tmp/a $db
+
+# mk9660 -B rewrites the boot block pbsraw in place, so its CD bytes never
+# match updatedb's hash of the source. blank it (-) so the install skips it.
+awk '$1=="pbsraw"{$NF="-"} {print}' $db >/tmp/db && mv /tmp/db $db
+awk '$4=="pbsraw"{$NF="-"} {print}' $log >/tmp/log && mv /tmp/log $log
+
+cp $db $db2

@@ -1,0 +1,75 @@
+#!/bin/rc
+
+rfork en
+
+fn isodate {
+smon='s/Jan/01/
+        s/Feb/02/
+        s/Mar/03/
+        s/Apr/04/
+        s/May/05/
+        s/Jun/06/
+        s/Jul/07/
+        s/Aug/08/
+        s/Sep/09/
+        s/Oct/10/
+        s/Nov/11/
+        s/Dec/12/'
+
+	year=`{date | sed 's/.* //'}
+	mon=`{date | sed -e 's/^....(...).*/\1/' -e $smon}
+	day=`{date | sed -e 's/^........(..).*/\1/'}
+
+	if(test $day -le 9)
+		day = 0$day
+
+	echo -n $year-$mon-$day
+}
+
+fn buildinit {
+	if (! ~ $buildinitdone yes) {
+		date=`{isodate}
+		#uri_iso=http://9p.io/plan9/download/plan9.iso.bz2
+		uri_iso=http://localhost/plan9.iso.bz2
+		uri_patch=http://www.9legacy.org/9legacy/patch
+		#arch=(386)
+		#arch=(386 arm)
+		#arch=(386 amd64)
+		# arm before arm64: the bcm64 pi5 bootdir embeds /arm/bin binaries
+		#arch=(386 amd64 arm arm64)
+		arch=(386 amd64 arm arm64 riscv64)
+		#arch=(386 amd64 arm)
+		#arch=(386 riscv riscv64)
+		#arch=(386 mips mips64 spim spim64)
+		#arch=(386 amd64 arm mips mips64 power spim spim64 riscv riscv64)
+		#arch=(386 amd64 arm mips mips64 power sparc spim spim64 riscv riscv64)
+		#nvram=/dev/sdE0/nvram
+		#nvram=/mnt/term/home/djc/work/rpi/nvram
+
+		if(~ $target '')
+			target=plan9
+
+		build=/usr/setup
+
+		dst_host=auriga.9grid.fr
+		dst_user=web
+		dst_dir=/usr/web/www.9legacy.org/download
+		dst_name=$target
+
+		dir=/dist/build
+		path=(/bin $dir .)
+
+		patches=$dir/dist/$target
+
+		rdev=/dev/sdD0
+
+		buildinitdone=yes
+	}
+}
+
+fn quitonfailure {
+	if (! ~ $1 '' 0 '|')
+		exit $1
+}
+
+buildinit

@@ -1,0 +1,8 @@
+#!/bin/rc
+
+rfork en
+
+. funcs
+
+mv $build/sources/plan9/usr/glenda/tmp/cddisk /sys/lib/dist/pc
+mv $build/sources/plan9/usr/glenda/tmp/9pcflop /386

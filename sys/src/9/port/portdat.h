@@ -121,7 +121,7 @@ struct RWlock
 	Lock	use;
 	Proc	*head;		/* list of waiting processes */
 	Proc	*tail;
-	ulong	wpc;		/* pc of writer */
+	uintptr	wpc;		/* pc of writer */
 	Proc	*wproc;		/* writing proc */
 	int	readers;	/* number of readers */
 	int	writer;		/* number of writers */
@@ -355,8 +355,8 @@ enum
 struct Page
 {
 	Lock;
-	ulong	pa;			/* Physical address in memory */
-	ulong	va;			/* Virtual address for user */
+	uintptr	pa;			/* Physical address in memory */
+	uintptr	va;			/* Virtual address for user */
 	ulong	daddr;			/* Disc address on swap */
 	ulong	gen;			/* Generation counter for swap */
 	ushort	ref;			/* Reference count */
@@ -429,9 +429,9 @@ struct Physseg
 {
 	ulong	attr;			/* Segment attributes */
 	char	*name;			/* Attach name */
-	ulong	pa;			/* Physical address */
+	uintptr	pa;			/* Physical address */
 	ulong	size;			/* Maximum segment size in pages */
-	Page	*(*pgalloc)(Segment*, ulong);	/* Allocation if we need it */
+	Page	*(*pgalloc)(Segment*, uintptr);	/* Allocation if we need it */
 	void	(*pgfree)(Page*);
 };
 
@@ -450,8 +450,8 @@ struct Segment
 	QLock	lk;
 	ushort	steal;		/* Page stealer lock */
 	ushort	type;		/* segment type */
-	ulong	base;		/* virtual base */
-	ulong	top;		/* virtual top */
+	uintptr	base;		/* virtual base */
+	uintptr	top;		/* virtual top */
 	ulong	size;		/* size in pages */
 	ulong	fstart;		/* start address in file for demand load */
 	ulong	flen;		/* length of segment in file */
@@ -532,7 +532,7 @@ enum
 
 struct Pallocmem
 {
-	ulong base;
+	uintptr base;
 	ulong npage;
 };
 
@@ -713,7 +713,7 @@ struct Proc
 	ulong	privatemem;	/* proc does not let anyone read mem */
 	int	hang;		/* hang at next exec for debug */
 	int	procctl;	/* Control for /proc debugging */
-	ulong	pc;		/* DEBUG only */
+	uintptr	pc;		/* DEBUG only */
 
 	Lock	rlock;		/* sync sleep/wakeup with postnote */
 	Rendez	*r;		/* rendezvous point slept on */

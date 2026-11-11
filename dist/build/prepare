@@ -1,0 +1,39 @@
+#!/bin/rc
+
+rfork n
+
+. funcs
+
+cat > /sys/lib/dist/setup << EOF
+#!/bin/rc
+# setup - prep for the mkfile
+. ./defs
+
+bind $build/sources /n/sources
+bind $build/other /n/other
+bind $build/dist /n/dist
+EOF
+
+sed /'mk cddisk'/d /sys/lib/dist/mkfile > /sys/lib/dist/mkfile.new
+mv /sys/lib/dist/mkfile.new /sys/lib/dist/mkfile
+
+# the tree to build is put in $build/sources/plan9 beforehand
+if(! test -d $build/sources/plan9){
+	echo $build/sources/plan9 does not exist
+	exit sources
+}
+rm -rf $build/dist $build/other
+chmod +t $build
+
+if(test -d /usr/web)
+	rm -f /usr/web/plan9checksums.txt
+if not
+	mkdir /usr/web
+chmod +t /usr/web
+
+mkdir $build/dist
+mkdir $build/other
+mkdir $build/other/dist
+rm -rf /sys/lib/dist/web.protect
+mkdir /sys/lib/dist/web.protect
+chmod +t /sys/lib/dist/web.protect

@@ -406,6 +406,12 @@ init0(void)
 		poperror();
 	}
 	kproc("alarm", alarmkproc, 0);
+
+	/*
+	 * touser puts the user psr in SPSR for its RFE; an interrupt
+	 * taken in between would leave the svc psr there instead.
+	 */
+	splhi();
 	touser(sp);
 	assert(0);			/* shouldn't have returned */
 }

@@ -114,9 +114,7 @@ struct Arena {
 	Arena*	aup;
 	Arena*	down;
 	uintptr	asize;
-#ifndef _BITS64
-	ulong	_pad;
-#endif
+	uintptr	_pad;	/* 0: the first block's "previous tail" size */
 };
 
 CTASSERT(sizeof(Arena) % 8 == 0, Arena_multiple_of_8_bytes);
@@ -642,6 +640,7 @@ poolnewarena(Pool *p, uintptr asize)
 	a->magic = ARENA_MAGIC;
 	blocksetsize(a, sizeof(Arena));
 	arenasetsize(a, asize);
+	a->_pad = 0;
 	blockcheck(p, a);
 
 	/* create one large block in arena */

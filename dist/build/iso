@@ -1,0 +1,40 @@
+#!/bin/rc
+
+rfork en
+
+. funcs
+
+if (test -d $build/sources/plan9/sys/src/9/pcboot) {
+	src9=$build/sources/plan9
+	dist=/sys/lib/dist
+	cdstub=$dist/cdstub
+
+	cp $src9/386/9load /386
+	cp $src9/386/pbsraw /386
+
+#	chmod +w $cdstub
+#	touch $cdstub/9load
+#	touch $cdstub/pbsraw
+#	chmod -w $cdstub
+
+	mv /sys/lib/dist/mkfile /sys/lib/dist/mkfile.orig
+	cp $src9/sys/lib/dist/mkfile /sys/lib/dist/mkfile
+
+	sed /'mk cddisk'/d /sys/lib/dist/mkfile > /sys/lib/dist/mkfile.new
+	mv /sys/lib/dist/mkfile.new /sys/lib/dist/mkfile
+
+	rm -f $build/other/dist/*
+	cd /sys/lib/dist && mk ncd-dist
+	cd /sys/lib/dist/pc && mk clean
+
+#	chmod +w $cdstub
+#	rm -f $cdstub/9load
+#	rm -f $cdstub/pbsraw
+#	chmod -w $cdstub
+	mv /sys/lib/dist/mkfile.orig /sys/lib/dist/mkfile
+}
+if not {
+	rm -f $build/other/dist/*
+	cd /sys/lib/dist && mk ncd-dist
+	cd /sys/lib/dist/pc && mk clean
+}

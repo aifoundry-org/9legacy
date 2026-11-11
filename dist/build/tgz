@@ -1,0 +1,21 @@
+#!/bin/rc
+
+rfork en
+
+. funcs
+
+# the files of the CD as a gzipped tar, read back from the CD
+iso=/usr/web/$dst_name.iso
+tgz=/usr/web/$dst_name.tar.gz
+
+rm -f /srv/tgz9660 $tgz
+9660srv tgz9660
+mount /srv/tgz9660 /n/iso $iso
+rm -f /srv/tgz9660
+{ cd /n/iso && tar c . } | gzip >$tgz
+st=$status
+unmount /n/iso
+if(! ~ $st '' '|')
+	exit tgz
+echo `{date} sha256 `{sha1sum -2 256 <$tgz} $dst_name.tar.gz \
+	>>/usr/web/plan9checksums.txt

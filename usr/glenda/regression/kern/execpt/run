@@ -1,0 +1,57 @@
+#!/bin/rc
+# execpt [n]: an exec storm while the programs it runs are rebuilt.
+# The pc kernel linked a recycled page table into the page directory
+# before clearing it (sys/src/9/pc/mmu.c, 06bd72cc2), so the cpu could
+# cache a translation from the stale entries: a new process found its
+# argv nil, or wrote its arguments into another process's page.
+# Before the fix about two runs in three failed on one cpu.  Three
+# workers each run n rounds (default 3000) of argcheck with 40
+# arguments and an echo | tr | sort pipeline, while echo, sed, sort
+# and tr are rebuilt and reinstalled 30 times; the old programs are
+# renamed, not removed, so the races of a reinstall are not failures.
+
+rfork en
+n=$1
+if(~ $#n 0)
+	n=3000
+
+# a private /tmp holds the sources, objects and /tmp/bin
+ramfs
+mkdir /tmp/src /tmp/bin
+cp mkfile argcheck.c /tmp/src
+cp /sys/src/cmd/^(echo sed sort tr)^.c /tmp/src
+bind -b /tmp/bin /bin
+cd /tmp/src
+mk install >/dev/null >[2=1] || exit compile
+
+fn reinstall {
+	for(j in `{seq 1 30}){
+		mk 'GEN='$j echo.install sed.install sort.install tr.install >/dev/null >[2=1]
+		mk clean >/dev/null
+	}
+}
+
+a=()
+for(i in `{seq 2 40})
+	a=($a x$i)
+fn worker {
+	for(j in `{seq 1 $1}){
+		argcheck 41 $a || echo BAD argv $j
+		x=`{echo abc | tr a-c A-C | sort -u}
+		if(! ~ $x ABC)
+			echo BAD pipe $j $x
+	}
+}
+
+reinstall &
+worker $n >/tmp/w1 >[2=1] &
+worker $n >/tmp/w2 >[2=1] &
+worker $n >/tmp/w3 >[2=1] &
+wait
+cat /tmp/w1 /tmp/w2 /tmp/w3 >/tmp/bad
+if(test -s /tmp/bad){
+	sed 10q /tmp/bad
+	echo execpt: `{wc -l </tmp/bad} failures >[1=2]
+	exit failures
+}
+echo execpt: ok

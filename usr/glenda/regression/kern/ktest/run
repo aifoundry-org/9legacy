@@ -1,0 +1,12 @@
+#!/bin/rc
+# ktest: system call argument passing, notes and the fp state around
+# them, 64-bit offsets, nsec, brk and stack growth, semaphores, fork,
+# wait and faults, compiled natively.
+
+rfork e
+mk clean >/dev/null
+mk ktest >/dev/null || exit compile
+./ktest
+st=$status
+mk clean >/dev/null
+exit $st

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+# build the qemu that boot/qemu -arm runs: the release below with
+# the patches in boot/qemu-patches, for arm only, in boot/qemu-$version;
+# do nothing if it is built with the same patches.  print the
+# path of qemu-system-arm
+set -e
+cd $(dirname $0)/..
+
+version=11.1.3
+sha256=5a8289c7940dc77d3873c81a6c29ba3afe1446fc9d36e77fa1658cdbecb84b22
+prefix=$PWD/boot/qemu-$version
+
+if [ $# -gt 0 ]; then
+	echo 'usage: boot/mkqemu' >&2
+	exit 1
+fi
+
+sum=$(cat boot/qemu-patches/*.patch | sha256sum | cut -d' ' -f1)
+if [ -x $prefix/bin/qemu-system-arm ] && [ "$(cat $prefix/patches.sum 2>/dev/null)" = $sum ]; then
+	echo $prefix/bin/qemu-system-arm
+	exit 0
+fi
+
+echo "# building qemu $version in $prefix" >&2
+tmp=$(mktemp -d)
+trap 'rm -rf $tmp' EXIT
+curl -sfL -o $tmp/qemu.tar.xz https://download.qemu.org/qemu-$version.tar.xz
+echo "$sha256  $tmp/qemu.tar.xz" | sha256sum -c --quiet
+tar -C $tmp -xJf $tmp/qemu.tar.xz
+patches=$PWD/boot/qemu-patches
+cd $tmp/qemu-$version
+for p in $patches/*.patch; do
+	patch -s -p1 <$p
+done
+rm -rf $prefix
+./configure --target-list=arm-softmmu \
+	--disable-docs --disable-tools --disable-werror --enable-slirp \
+	--disable-gtk --disable-sdl --disable-vnc --disable-opengl >$tmp/log 2>&1 ||
+	{ tail -20 $tmp/log >&2; exit 1; }
+# the machine needs no data files: install only the binary
+make -j${JOBS:-$(nproc)} qemu-system-arm >>$tmp/log 2>&1 ||
+	{ tail -40 $tmp/log >&2; exit 1; }
+mkdir -p $prefix/bin
+cp build/qemu-system-arm $prefix/bin/
+echo $sum >$prefix/patches.sum
+echo $prefix/bin/qemu-system-arm

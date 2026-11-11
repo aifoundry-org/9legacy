@@ -1,0 +1,44 @@
+# rva23 - riscv64 qemu virt cpu server, root over virtio-9p
+dev
+	root
+	cons
+	arch
+	env
+	pipe
+	proc
+	mnt
+	srv
+	dup
+	ssl
+	tls
+	cap
+	fs
+	uart
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium ptclbsum inferno
+	ether		netif
+	virtio9p	pci virtio10mem
+
+link
+	pciqemu		pci
+	ethervirtio10	pci virtio10mem
+	ethermedium
+	loopbackmedium
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+misc
+	uarti8250
+
+port
+	int cpuserver = 1;
+
+boot cpu
+	virtio9p
+
+bootdir
+	boot$CONF.out boot
