@@ -21,12 +21,13 @@ while [ $# -gt 0 ]; do
 	-386)		arch=386 ;;
 	-amd64)		arch=amd64 ;;
 	-riscv64)	arch=riscv64 ;;
+	-arm)		arch=arm ;;
 	-cpu)		kind=cpu ;;
 	-smp)		smp=$2; shift; case $smp in ''|*[!0-9]*) echo 'boot/qemu: -smp needs a number' >&2; exit 1 ;; esac ;;
 	-9fat)		boot=9fat ;;
 	-vga)		vga=true ;;
 	*)
-		echo 'usage: boot/qemu [-386 | -amd64 | -riscv64] [-cpu | -vga] [-smp n] [-9fat] [-u9fs]' >&2
+		echo 'usage: boot/qemu [-386 | -amd64 | -riscv64 | -arm] [-cpu | -vga] [-smp n] [-9fat] [-u9fs]' >&2
 		exit 1
 	esac
 	shift
@@ -42,15 +43,45 @@ if [ $vga = true ] && { [ $kind = cpu ] || [ $boot = 9fat ] || [ $u9fs = true ];
 	exit 1
 fi
 
+if [ $arch = arm ] && { [ $vga = true ] || [ $boot = 9fat ] || [ $kind = cpu ]; }; then
+	echo 'boot/qemu: -arm boots only the pi2 terminal kernel over u9fs' >&2
+	exit 1
+fi
+
 kvm=
 if [ -w /dev/kvm ]; then
 	kvm='-enable-kvm -cpu host'
 fi
 
-if [ $u9fs = true ]; then
+if [ $u9fs = true ] || [ $arch = arm ]; then
 	echo '# building u9fs' >&2
 	make -C sys/src/cmd/unix/u9fs
 	fwd="guestfwd=tcp:10.0.2.1:564-cmd:sys/src/cmd/unix/u9fs/u9fs -a none -u $USER ."
+fi
+
+# the pi2 kernel on qemu raspi2b, built by boot/mkqemu with the
+# patches it needs.  -bios loads the kernel at 0x8000 and starts it
+# as the firmware does; boot/pi2.ini goes where the firmware leaves
+# the command line.  the console is the mini uart, the second serial
+# port.  the machine has no network but usb: the root is u9fs over a
+# usb-net device, on the root port, as the hub qemu adds otherwise
+# has a descriptor plan 9 does not take
+if [ $arch = arm ]; then
+	elf=arm/9pi2
+	if [ ! -f $elf ]; then
+		echo "boot/qemu: $elf missing" >&2
+		echo "# build it in a 386 guest: cd /sys/src/9/bcm && objtype=arm mk 'CONF=pi2'" >&2
+		exit 1
+	fi
+	qemu=$(boot/mkqemu)
+	exec $qemu -M raspi2b -bios $elf -display none \
+		-serial null -serial stdio \
+		-device loader,file=boot/pi2.ini,addr=0x100,force-raw=on \
+		-device usb-net,netdev=net0,port=1,$mac \
+		-netdev "user,id=net0,$fwd"
+fi
+
+if [ $u9fs = true ]; then
 	tftp='tftp=.'
 	exec qemu-system-x86_64 -m $mem -smp $smp -serial stdio $kvm \
 		-drive file=$pxe,format=raw -snapshot \

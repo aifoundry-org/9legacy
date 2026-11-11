@@ -83,9 +83,9 @@ kernel)
 	;;
 smoke)
 	case ${1:-} in
-	-386|-amd64)	qemu=($1) ;;
+	-386|-amd64|-arm)	qemu=($1) ;;
 	-riscv64)	qemu=($1 -smp ${SMP:-4}) ;;
-	*)		echo "usage: $prog smoke [-386 | -amd64 | -riscv64]" >&2; exit 1 ;;
+	*)		echo "usage: $prog smoke [-386 | -amd64 | -riscv64 | -arm]" >&2; exit 1 ;;
 	esac
 	guest='rc /usr/glenda/bin/rc/smoke'
 	mark=SMOKE
@@ -96,9 +96,13 @@ smoke)
 		guest="rc /usr/glenda/regression/run kern/basics kern/ktest && $guest"
 		timeout=3600
 	fi
+	if [ $1 = -arm ]; then
+		# there is no kvm for arm either
+		timeout=3600
+	fi
 	;;
 *)
-	echo "usage: $prog build | cd [rev] | kernel | smoke [-386 | -amd64 | -riscv64]" >&2
+	echo "usage: $prog build | cd [rev] | kernel | smoke [-386 | -amd64 | -riscv64 | -arm]" >&2
 	exit 1
 	;;
 esac

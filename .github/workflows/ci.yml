@@ -58,7 +58,7 @@ jobs:
       # the binaries and kernels the smoke tests boot; tar keeps the modes
       - name: Pack the build
         run: |
-          git ls-files -z -o -i --exclude-standard --directory 386 amd64 riscv64 |
+          git ls-files -z -o -i --exclude-standard --directory 386 amd64 arm riscv64 |
             tar --null -T - -cf - | zstd -T0 >build.tar.zst
 
       - uses: actions/upload-artifact@v7
@@ -81,6 +81,11 @@ jobs:
             packages: qemu-system-x86
           - arch: riscv64
             packages: qemu-system-riscv opensbi
+          # boot/mkqemu builds the qemu it boots with
+          - arch: arm
+            packages: >-
+              build-essential ninja-build pkg-config python3-venv flex bison
+              libglib2.0-dev libpixman-1-dev libslirp-dev libfdt-dev
     name: smoke ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v7
@@ -106,6 +111,17 @@ jobs:
           ./boot/mkdirs
           zstd -dc build.tar.zst | tar -xf -
           rm build.tar.zst
+
+      - name: Cache qemu
+        if: matrix.arch == 'arm'
+        uses: actions/cache@v6
+        with:
+          path: boot/qemu-[0-9]*
+          key: qemu-${{ runner.os }}-${{ hashFiles('boot/mkqemu', 'boot/qemu-patches/*') }}
+
+      - name: Build qemu
+        if: matrix.arch == 'arm'
+        run: ./boot/mkqemu
 
       - name: Smoke ${{ matrix.arch }}
         run: ./boot/test smoke -${{ matrix.arch }}
