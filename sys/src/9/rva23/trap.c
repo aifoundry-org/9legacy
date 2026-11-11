@@ -21,9 +21,40 @@ enum Faulttypes {
 	Unknownflt, Exception, Localintr, Globalintr, Nfaulttypes,
 };
 
+/* print what looks like return pcs on the stack, for ktrace or acid */
+static void
+_dumpstack(Ureg *ureg)
+{
+	uintptr l, v, estack;
+	extern char etext[];
+	int i;
+
+	iprint("dumpstack: cpu%d pid %lud pc %#p sp %#p\n", m->machno,
+		up != nil? up->pid: 0, ureg->pc, ureg->sp);
+	if(up != nil && (uintptr)&l >= (uintptr)up->kstack
+	&& (uintptr)&l <= (uintptr)up->kstack+KSTACK)
+		estack = (uintptr)up->kstack+KSTACK;
+	else
+		estack = ROUNDUP((uintptr)&l, 4096);
+	i = 0;
+	for(l = (uintptr)&l; l < estack; l += sizeof(uintptr)){
+		v = *(uintptr*)l;
+		if(v > KTZERO && v < (uintptr)etext){
+			iprint("%#p ", v);
+			if(++i == 6){
+				i = 0;
+				iprint("\n");
+			}
+		}
+	}
+	if(i)
+		iprint("\n");
+}
+
 void
 dumpstack(void)
 {
+	callwithureg(_dumpstack);
 }
 
 void
