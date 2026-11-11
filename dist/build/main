@@ -13,6 +13,7 @@ task=( \
 	repl \
 	iso \
 	copy \
+	tgz \
 )
 
 # usb: add usb and copy-usb after iso and send

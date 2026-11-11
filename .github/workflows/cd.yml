@@ -57,7 +57,18 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: 9legacy-cd
-          path: usr/web
+          path: |
+            usr/web/9legacy.iso
+            usr/web/plan9checksums.txt
+          if-no-files-found: error
+
+      # the CD's files, read back from it; already compressed
+      - uses: actions/upload-artifact@v7
+        with:
+          name: 9legacy-tgz
+          path: usr/web/9legacy.tar.gz
+          compression-level: 0
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v7
         if: failure()
