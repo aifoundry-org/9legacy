@@ -15,6 +15,7 @@ arm/bin
 arm/init
 arm/lib
 arm/s9*
+boot/qemu-[0-9]*
 bootdisk.img
 dist/build/data
 dist/build/log

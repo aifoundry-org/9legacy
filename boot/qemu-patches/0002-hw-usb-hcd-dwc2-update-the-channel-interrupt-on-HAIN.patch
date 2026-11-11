@@ -1,0 +1,37 @@
+From 1e649884abd38752706992ac7f35b0acef058676 Mon Sep 17 00:00:00 2001
+From: Shelley <shelley@exe.dev>
+Date: Tue, 10 Nov 2026 22:41:53 +0000
+Subject: [PATCH] hw/usb/hcd-dwc2: update the channel interrupt on HAINTMSK
+ writes
+
+GINTSTS.HCHINT is set when a channel interrupt pending in HAINT is
+not masked in HAINTMSK, but only changes in HAINT updated it.  A
+driver that masks a channel in HAINTMSK to quiet its interrupt
+until it is serviced, as Plan 9's does from its FIQ handler, kept
+getting interrupted.  Raise or lower HCHINT when HAINTMSK changes.
+
+Co-authored-by: Shelley <shelley@exe.dev>
+---
+ hw/usb/hcd-dwc2.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/hw/usb/hcd-dwc2.c b/hw/usb/hcd-dwc2.c
+index cd3b611..fd18673 100644
+--- a/hw/usb/hcd-dwc2.c
++++ b/hw/usb/hcd-dwc2.c
+@@ -951,6 +951,15 @@ static void dwc2_hreg0_write(void *ptr, hwaddr addr, int index, uint64_t val,
+ 
+     *mmio = val;
+ 
++    /* the channel interrupt is the unmasked channels' ones */
++    if (addr == HAINTMSK) {
++        if (s->haint & s->haintmsk) {
++            dwc2_raise_global_irq(s, GINTSTS_HCHINT);
++        } else {
++            dwc2_lower_global_irq(s, GINTSTS_HCHINT);
++        }
++    }
++
+     if (iflg > 0) {
+         trace_usb_dwc2_hreg0_action("enable PRTINT");
+         dwc2_raise_global_irq(s, GINTSTS_PRTINT);

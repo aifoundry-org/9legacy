@@ -1,0 +1,451 @@
+From 3250fb75d4d245686572de5e08cef89fc69ef5b8 Mon Sep 17 00:00:00 2001
+From: Shelley <shelley@exe.dev>
+Date: Tue, 10 Nov 2026 22:44:04 +0000
+Subject: [PATCH] hw/timer: add the BCM2835 ARM timer
+
+The ARM side timer of the BCM2835 and its successors was an
+unimplemented device: it read as zero and never interrupted.  Plan 9
+uses it to hand work from its USB FIQ handler to an IRQ handler and
+reads its free running counter for interrupt timing; with it missing
+USB transfers completed only when something else interrupted.
+
+Implement it after chapter 14 of the BCM2835 ARM Peripherals
+document: a 16 or 32 bit down counter with a load and a reload
+register, a predivider and a prescaler, raising ARM interrupt 0 when
+it reaches zero, and a free running counter with its own prescaler,
+both counting the APB clock, 250 MHz unless set otherwise.
+
+Co-authored-by: Shelley <shelley@exe.dev>
+---
+ hw/arm/bcm2835_peripherals.c         |  14 +-
+ hw/timer/bcm2835_armtmr.c            | 284 +++++++++++++++++++++++++++
+ hw/timer/meson.build                 |   2 +-
+ hw/timer/trace-events                |   5 +
+ include/hw/arm/bcm2835_peripherals.h |   3 +-
+ include/hw/timer/bcm2835_armtmr.h    |  37 ++++
+ 6 files changed, 342 insertions(+), 3 deletions(-)
+ create mode 100644 hw/timer/bcm2835_armtmr.c
+ create mode 100644 include/hw/timer/bcm2835_armtmr.h
+
+diff --git a/hw/arm/bcm2835_peripherals.c b/hw/arm/bcm2835_peripherals.c
+index 558c180..a551460 100644
+--- a/hw/arm/bcm2835_peripherals.c
++++ b/hw/arm/bcm2835_peripherals.c
+@@ -96,6 +96,9 @@ static void raspi_peripherals_base_init(Object *obj)
+     object_initialize_child(obj, "systimer", &s->systmr,
+                             TYPE_BCM2835_SYSTIMER);
+ 
++    /* ARM Timer */
++    object_initialize_child(obj, "armtimer", &s->armtmr, TYPE_BCM2835_ARMTMR);
++
+     /* UART0 */
+     object_initialize_child(obj, "uart0", &s->uart0, TYPE_PL011);
+ 
+@@ -315,6 +318,16 @@ void bcm_soc_peripherals_common_realize(DeviceState *dev, Error **errp)
+         qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_GPU_IRQ,
+                                INTERRUPT_TIMER3));
+ 
++    /* ARM Timer */
++    if (!sysbus_realize(SYS_BUS_DEVICE(&s->armtmr), errp)) {
++        return;
++    }
++    memory_region_add_subregion(&s->peri_mr, ARMCTRL_TIMER0_1_OFFSET,
++                sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->armtmr), 0));
++    sysbus_connect_irq(SYS_BUS_DEVICE(&s->armtmr), 0,
++        qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_ARM_IRQ,
++                               INTERRUPT_ARM_TIMER));
++
+     /* UART0 */
+     qdev_prop_set_chr(DEVICE(&s->uart0), "chardev", serial_hd(0));
+     if (!sysbus_realize(SYS_BUS_DEVICE(&s->uart0), errp)) {
+@@ -519,7 +532,6 @@ void bcm_soc_peripherals_common_realize(DeviceState *dev, Error **errp)
+                                                  INTERRUPT_I2C));
+ 
+     create_unimp(s, &s->txp, "bcm2835-txp", TXP_OFFSET, 0x1000);
+-    create_unimp(s, &s->armtmr, "bcm2835-sp804", ARMCTRL_TIMER0_1_OFFSET, 0x40);
+     create_unimp(s, &s->i2s, "bcm2835-i2s", I2S_OFFSET, 0x100);
+     create_unimp(s, &s->smi, "bcm2835-smi", SMI_OFFSET, 0x100);
+     create_unimp(s, &s->bscsl, "bcm2835-spis", BSC_SL_OFFSET, 0x100);
+diff --git a/hw/timer/bcm2835_armtmr.c b/hw/timer/bcm2835_armtmr.c
+new file mode 100644
+index 0000000..9f42eae
+--- /dev/null
++++ b/hw/timer/bcm2835_armtmr.c
+@@ -0,0 +1,284 @@
++/*
++ * BCM2835 ARM timer emulation
++ *
++ * The timer of the ARM side of the BCM2835, BCM2836, BCM2837 and
++ * BCM2711, described in chapter 14 of the BCM2835 ARM Peripherals
++ * document: a down counter after the SP804, but with only one timer,
++ * a predivider, and a free running counter.  Both count the APB clock.
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "qemu/module.h"
++#include "qemu/timer.h"
++#include "hw/timer/bcm2835_armtmr.h"
++#include "hw/core/qdev-properties.h"
++#include "migration/vmstate.h"
++#include "trace.h"
++
++#define R_LOAD          0x00
++#define R_VALUE         0x04
++#define R_CONTROL       0x08
++#define R_IRQCLR        0x0c
++#define R_RAWIRQ        0x10
++#define R_MASKIRQ       0x14
++#define R_RELOAD        0x18
++#define R_PREDIVIDER    0x1c
++#define R_FREECNT       0x20
++
++#define CTRL_32BIT      (1 << 1)
++#define CTRL_PRESCALE   (3 << 2)
++#define CTRL_IE         (1 << 5)
++#define CTRL_ENABLE     (1 << 7)
++#define CTRL_FRENABLE   (1 << 9)
++#define CTRL_FRSCALE    (0xff << 16)
++#define CTRL_MASK       (CTRL_32BIT | CTRL_PRESCALE | CTRL_IE | CTRL_ENABLE | \
++                         (1 << 8) | CTRL_FRENABLE | CTRL_FRSCALE)
++
++static uint32_t bcm2835_armtmr_mask(BCM2835ArmTimerState *s)
++{
++    return s->control & CTRL_32BIT ? 0xffffffff : 0xffff;
++}
++
++static void bcm2835_armtmr_update_irq(BCM2835ArmTimerState *s)
++{
++    qemu_set_irq(s->irq, s->raw && (s->control & CTRL_IE));
++}
++
++static void bcm2835_armtmr_tick(void *opaque)
++{
++    BCM2835ArmTimerState *s = opaque;
++
++    trace_bcm2835_armtmr_expired();
++    s->raw = 1;
++    bcm2835_armtmr_update_irq(s);
++}
++
++static uint64_t bcm2835_armtmr_frfreq(BCM2835ArmTimerState *s)
++{
++    return s->freq / (((s->control & CTRL_FRSCALE) >> 16) + 1);
++}
++
++static uint32_t bcm2835_armtmr_frcount(BCM2835ArmTimerState *s)
++{
++    int64_t ns;
++
++    if (!(s->control & CTRL_FRENABLE)) {
++        return s->fr_count;
++    }
++    ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) - s->fr_ns;
++    return s->fr_count + muldiv64(ns, bcm2835_armtmr_frfreq(s),
++                                  NANOSECONDS_PER_SECOND);
++}
++
++/* must be called inside a ptimer transaction */
++static void bcm2835_armtmr_set_freq(BCM2835ArmTimerState *s)
++{
++    static const int prescale[] = { 1, 16, 256, 1 };
++    uint32_t freq;
++
++    freq = s->freq / (s->predivider + 1);
++    freq /= prescale[(s->control & CTRL_PRESCALE) >> 2];
++    ptimer_set_freq(s->timer, freq ? freq : 1);
++}
++
++static uint64_t bcm2835_armtmr_read(void *opaque, hwaddr offset,
++                                    unsigned size)
++{
++    BCM2835ArmTimerState *s = opaque;
++    uint64_t r = 0;
++
++    switch (offset) {
++    case R_LOAD:
++    case R_RELOAD:
++        r = s->load;
++        break;
++    case R_VALUE:
++        r = ptimer_get_count(s->timer);
++        break;
++    case R_CONTROL:
++        r = s->control;
++        break;
++    case R_IRQCLR:
++        r = 0x544d5241;     /* "ARMT", as on the hardware */
++        break;
++    case R_RAWIRQ:
++        r = s->raw;
++        break;
++    case R_MASKIRQ:
++        r = s->raw && (s->control & CTRL_IE);
++        break;
++    case R_PREDIVIDER:
++        r = s->predivider;
++        break;
++    case R_FREECNT:
++        r = bcm2835_armtmr_frcount(s);
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad offset 0x%" HWADDR_PRIx "\n",
++                      __func__, offset);
++        break;
++    }
++    trace_bcm2835_armtmr_read(offset, r);
++    return r;
++}
++
++static void bcm2835_armtmr_write(void *opaque, hwaddr offset,
++                                 uint64_t value64, unsigned size)
++{
++    BCM2835ArmTimerState *s = opaque;
++    uint32_t value = value64;
++    uint32_t old;
++
++    trace_bcm2835_armtmr_write(offset, value);
++    switch (offset) {
++    case R_LOAD:
++    case R_RELOAD:
++        s->load = value;
++        ptimer_transaction_begin(s->timer);
++        ptimer_set_limit(s->timer, value & bcm2835_armtmr_mask(s),
++                         offset == R_LOAD);
++        ptimer_transaction_commit(s->timer);
++        break;
++    case R_CONTROL:
++        old = s->control;
++        if ((old ^ value) & (CTRL_FRENABLE | CTRL_FRSCALE)) {
++            s->fr_count = bcm2835_armtmr_frcount(s);
++            s->fr_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++        }
++        s->control = value & CTRL_MASK;
++        ptimer_transaction_begin(s->timer);
++        bcm2835_armtmr_set_freq(s);
++        if ((old ^ value) & CTRL_32BIT) {
++            ptimer_set_limit(s->timer, s->load & bcm2835_armtmr_mask(s), 0);
++        }
++        if (s->control & CTRL_ENABLE) {
++            ptimer_run(s->timer, 0);
++        } else {
++            ptimer_stop(s->timer);
++        }
++        ptimer_transaction_commit(s->timer);
++        bcm2835_armtmr_update_irq(s);
++        break;
++    case R_IRQCLR:
++        s->raw = 0;
++        bcm2835_armtmr_update_irq(s);
++        break;
++    case R_PREDIVIDER:
++        s->predivider = value & 0x3ff;
++        ptimer_transaction_begin(s->timer);
++        bcm2835_armtmr_set_freq(s);
++        ptimer_transaction_commit(s->timer);
++        break;
++    case R_VALUE:
++    case R_RAWIRQ:
++    case R_MASKIRQ:
++    case R_FREECNT:
++        qemu_log_mask(LOG_GUEST_ERROR, "%s: read-only offset 0x%" HWADDR_PRIx
++                      "\n", __func__, offset);
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad offset 0x%" HWADDR_PRIx "\n",
++                      __func__, offset);
++        break;
++    }
++}
++
++static const MemoryRegionOps bcm2835_armtmr_ops = {
++    .read = bcm2835_armtmr_read,
++    .write = bcm2835_armtmr_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .impl = {
++        .min_access_size = 4,
++        .max_access_size = 4,
++    },
++};
++
++static void bcm2835_armtmr_reset(DeviceState *dev)
++{
++    BCM2835ArmTimerState *s = BCM2835_ARMTMR(dev);
++
++    s->load = 0;
++    s->control = 0x003e0020;
++    s->predivider = 0x7d;
++    s->raw = 0;
++    s->fr_count = 0;
++    s->fr_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++    ptimer_transaction_begin(s->timer);
++    ptimer_stop(s->timer);
++    ptimer_set_limit(s->timer, 0, 1);
++    bcm2835_armtmr_set_freq(s);
++    ptimer_transaction_commit(s->timer);
++    qemu_set_irq(s->irq, 0);
++}
++
++static void bcm2835_armtmr_realize(DeviceState *dev, Error **errp)
++{
++    BCM2835ArmTimerState *s = BCM2835_ARMTMR(dev);
++
++    s->timer = ptimer_init(bcm2835_armtmr_tick, s,
++                           PTIMER_POLICY_WRAP_AFTER_ONE_PERIOD |
++                           PTIMER_POLICY_CONTINUOUS_TRIGGER |
++                           PTIMER_POLICY_NO_IMMEDIATE_TRIGGER |
++                           PTIMER_POLICY_NO_IMMEDIATE_RELOAD |
++                           PTIMER_POLICY_NO_COUNTER_ROUND_DOWN);
++}
++
++static void bcm2835_armtmr_init(Object *obj)
++{
++    BCM2835ArmTimerState *s = BCM2835_ARMTMR(obj);
++
++    memory_region_init_io(&s->iomem, obj, &bcm2835_armtmr_ops, s,
++                          TYPE_BCM2835_ARMTMR, 0x40);
++    sysbus_init_mmio(SYS_BUS_DEVICE(s), &s->iomem);
++    sysbus_init_irq(SYS_BUS_DEVICE(s), &s->irq);
++}
++
++static const VMStateDescription bcm2835_armtmr_vmstate = {
++    .name = "bcm2835_armtmr",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .fields = (const VMStateField[]) {
++        VMSTATE_PTIMER(timer, BCM2835ArmTimerState),
++        VMSTATE_UINT32(load, BCM2835ArmTimerState),
++        VMSTATE_UINT32(control, BCM2835ArmTimerState),
++        VMSTATE_UINT32(predivider, BCM2835ArmTimerState),
++        VMSTATE_UINT32(raw, BCM2835ArmTimerState),
++        VMSTATE_UINT32(fr_count, BCM2835ArmTimerState),
++        VMSTATE_INT64(fr_ns, BCM2835ArmTimerState),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static const Property bcm2835_armtmr_properties[] = {
++    /* the APB clock: the core clock, 250 MHz on a Raspberry Pi */
++    DEFINE_PROP_UINT32("clock-frequency", BCM2835ArmTimerState, freq,
++                       250000000),
++};
++
++static void bcm2835_armtmr_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = bcm2835_armtmr_realize;
++    device_class_set_legacy_reset(dc, bcm2835_armtmr_reset);
++    device_class_set_props(dc, bcm2835_armtmr_properties);
++    dc->vmsd = &bcm2835_armtmr_vmstate;
++}
++
++static const TypeInfo bcm2835_armtmr_info = {
++    .name = TYPE_BCM2835_ARMTMR,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(BCM2835ArmTimerState),
++    .instance_init = bcm2835_armtmr_init,
++    .class_init = bcm2835_armtmr_class_init,
++};
++
++static void bcm2835_armtmr_register_types(void)
++{
++    type_register_static(&bcm2835_armtmr_info);
++}
++
++type_init(bcm2835_armtmr_register_types);
+diff --git a/hw/timer/meson.build b/hw/timer/meson.build
+index 201b5d8..6dcaea4 100644
+--- a/hw/timer/meson.build
++++ b/hw/timer/meson.build
+@@ -22,7 +22,7 @@ system_ss.add(when: 'CONFIG_MSF2', if_true: files('mss-timer.c'))
+ system_ss.add(when: 'CONFIG_NPCM7XX', if_true: files('npcm7xx_timer.c'))
+ system_ss.add(when: 'CONFIG_NRF51_SOC', if_true: files('nrf51_timer.c'))
+ system_ss.add(when: 'CONFIG_PXA2XX_TIMER', if_true: files('pxa2xx_timer.c'))
+-system_ss.add(when: 'CONFIG_RASPI', if_true: files('bcm2835_systmr.c'))
++system_ss.add(when: 'CONFIG_RASPI', if_true: files('bcm2835_armtmr.c', 'bcm2835_systmr.c'))
+ system_ss.add(when: 'CONFIG_SH_TIMER', if_true: files('sh_timer.c'))
+ system_ss.add(when: 'CONFIG_SLAVIO', if_true: files('slavio_timer.c'))
+ system_ss.add(when: 'CONFIG_SSE_COUNTER', if_true: files('sse-counter.c'))
+diff --git a/hw/timer/trace-events b/hw/timer/trace-events
+index 634ba1d..451757c 100644
+--- a/hw/timer/trace-events
++++ b/hw/timer/trace-events
+@@ -69,6 +69,11 @@ nrf51_timer_read(uint8_t timer_id, uint64_t addr, uint32_t value, unsigned size)
+ nrf51_timer_write(uint8_t timer_id, uint64_t addr, uint32_t value, unsigned size) "timer %u write addr 0x%" PRIx64 " data 0x%" PRIx32 " size %u"
+ nrf51_timer_set_count(uint8_t timer_id, uint8_t counter_id, uint32_t value) "timer %u counter %u count 0x%" PRIx32
+ 
++# bcm2835_armtmr.c
++bcm2835_armtmr_expired(void) "timer expired"
++bcm2835_armtmr_read(uint64_t offset, uint64_t data) "timer read: offset 0x%" PRIx64 " data 0x%" PRIx64
++bcm2835_armtmr_write(uint64_t offset, uint32_t data) "timer write: offset 0x%" PRIx64 " data 0x%" PRIx32
++
+ # bcm2835_systmr.c
+ bcm2835_systmr_timer_expired(unsigned id) "timer #%u expired"
+ bcm2835_systmr_irq_ack(unsigned id) "timer #%u acked"
+diff --git a/include/hw/arm/bcm2835_peripherals.h b/include/hw/arm/bcm2835_peripherals.h
+index 4f356f4..c895f72 100644
+--- a/include/hw/arm/bcm2835_peripherals.h
++++ b/include/hw/arm/bcm2835_peripherals.h
+@@ -29,6 +29,7 @@
+ #include "hw/sd/sdhci.h"
+ #include "hw/sd/bcm2835_sdhost.h"
+ #include "hw/gpio/bcm2835_gpio.h"
++#include "hw/timer/bcm2835_armtmr.h"
+ #include "hw/timer/bcm2835_systmr.h"
+ #include "hw/usb/hcd-dwc2.h"
+ #include "hw/ssi/bcm2835_spi.h"
+@@ -56,7 +57,7 @@ struct BCMSocPeripheralBaseState {
+     BCM2835SystemTimerState systmr;
+     BCM2835MphiState mphi;
+     UnimplementedDeviceState txp;
+-    UnimplementedDeviceState armtmr;
++    BCM2835ArmTimerState armtmr;
+     BCM2835PowerMgtState powermgt;
+     BCM2835CprmanState cprman;
+     PL011State uart0;
+diff --git a/include/hw/timer/bcm2835_armtmr.h b/include/hw/timer/bcm2835_armtmr.h
+new file mode 100644
+index 0000000..d02c7ce
+--- /dev/null
++++ b/include/hw/timer/bcm2835_armtmr.h
+@@ -0,0 +1,37 @@
++/*
++ * BCM2835 ARM timer emulation
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef BCM2835_ARMTMR_H
++#define BCM2835_ARMTMR_H
++
++#include "hw/core/sysbus.h"
++#include "hw/core/irq.h"
++#include "hw/core/ptimer.h"
++#include "qom/object.h"
++
++#define TYPE_BCM2835_ARMTMR "bcm2835-armtmr"
++OBJECT_DECLARE_SIMPLE_TYPE(BCM2835ArmTimerState, BCM2835_ARMTMR)
++
++struct BCM2835ArmTimerState {
++    /*< private >*/
++    SysBusDevice parent_obj;
++
++    /*< public >*/
++    MemoryRegion iomem;
++    ptimer_state *timer;
++    qemu_irq irq;
++    uint32_t freq;
++
++    uint32_t load;
++    uint32_t control;
++    uint32_t predivider;
++    uint32_t raw;
++    /* the free running counter is fr_count at fr_ns while it runs */
++    uint32_t fr_count;
++    int64_t fr_ns;
++};
++
++#endif
